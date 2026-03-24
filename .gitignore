@@ -1,0 +1,4 @@
+# Root (monorepo: backend/ and frontend/ have their own .gitignore rules)
+.DS_Store
+Thumbs.db
+*.log

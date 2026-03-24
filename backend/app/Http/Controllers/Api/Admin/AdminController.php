@@ -1,0 +1,278 @@
+<?php
+
+namespace App\Http\Controllers\Api\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\BannerAd;
+use App\Models\Barangay;
+use App\Models\Category;
+use App\Models\PricePost;
+use App\Models\Product;
+use App\Models\ProductUnit;
+use App\Services\SettingsService;
+use App\Support\Slugify;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
+
+class AdminController extends Controller
+{
+    public function __construct(
+        private SettingsService $settings,
+    ) {}
+
+    public function state(): \Illuminate\Http\JsonResponse
+    {
+        $anonymousEnabled = $this->settings->anonymousPostingEnabled();
+        $strategy = $this->settings->bannerStrategy('home_top');
+        $banners = BannerAd::query()
+            ->where('slot_key', 'home_top')
+            ->orderBy('sort_order')
+            ->get();
+
+        $categories = Category::query()
+            ->orderBy('name')
+            ->get();
+
+        $productUnits = ProductUnit::query()
+            ->orderBy('sort_order')
+            ->orderBy('code')
+            ->get();
+
+        return response()->json([
+            'anonymousEnabled' => $anonymousEnabled,
+            'homeTopStrategy' => $strategy,
+            'banners' => $banners->map(fn (BannerAd $b) => [
+                'id' => (string) $b->id,
+                'isActive' => (bool) $b->is_active,
+                'slotKey' => $b->slot_key,
+            ])->all(),
+            'categories' => $categories->map(fn (Category $c) => [
+                'id' => (string) $c->id,
+                'name' => $c->name,
+                'slug' => $c->slug,
+            ])->all(),
+            'productUnits' => $productUnits->map(fn (ProductUnit $u) => [
+                'id' => (string) $u->id,
+                'code' => $u->code,
+                'label' => $u->label,
+                'sortOrder' => (int) $u->sort_order,
+            ])->all(),
+        ]);
+    }
+
+    public function flipAnonymous(): \Illuminate\Http\JsonResponse
+    {
+        $enabled = $this->settings->anonymousPostingEnabled();
+        $this->settings->setAnonymousPostingEnabled(! $enabled);
+
+        return response()->json(['ok' => true, 'anonymousEnabled' => ! $enabled]);
+    }
+
+    public function setHomeTopStrategy(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'strategy' => ['required', 'in:STATIC,ROTATE'],
+        ]);
+        $this->settings->setBannerStrategy('home_top', $data['strategy']);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function createBanner(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $v = $request->validate([
+            'slotKey' => ['required', 'string', 'max:64'],
+            'image' => ['required', 'file', 'image', 'max:5120', 'mimes:jpeg,jpg,png,gif,webp'],
+            'href' => ['nullable', 'string', 'max:2000'],
+            'alt' => ['nullable', 'string', 'max:300'],
+            'sortOrder' => ['nullable', 'integer'],
+            'validFrom' => ['nullable', 'date'],
+            'validTo' => ['nullable', 'date'],
+        ]);
+
+        $path = $request->file('image')->store('banner-uploads', 'public');
+
+        BannerAd::query()->create([
+            'slot_key' => $v['slotKey'],
+            'image_url' => $path,
+            'href' => $v['href'] ?? '',
+            'alt' => $v['alt'] ?? '',
+            'sort_order' => $v['sortOrder'] ?? 0,
+            'valid_from' => isset($v['validFrom']) ? $v['validFrom'] : null,
+            'valid_to' => isset($v['validTo']) ? $v['validTo'] : null,
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function toggleBanner(Request $request, string $id): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'isActive' => ['required', 'boolean'],
+        ]);
+        $b = BannerAd::query()->findOrFail((int) $id);
+        $b->is_active = $data['isActive'];
+        $b->save();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function deleteBanner(string $id): \Illuminate\Http\JsonResponse
+    {
+        $b = BannerAd::query()->find((int) $id);
+        if ($b) {
+            $stored = $b->image_url ?? '';
+            if ($stored !== '' && ! preg_match('#^https?://#i', $stored)) {
+                Storage::disk('public')->delete($stored);
+            }
+            $b->delete();
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function storeBarangay(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $v = $request->validate([
+            'cityId' => ['required', 'string', 'exists:cities,id'],
+            'name' => [
+                'required',
+                'string',
+                'max:200',
+                Rule::unique('barangays', 'name')->where(
+                    fn ($q) => $q->where('city_id', (int) $request->input('cityId')),
+                ),
+            ],
+        ]);
+
+        $cityId = (int) $v['cityId'];
+        $name = trim($v['name']);
+        Barangay::query()->create([
+            'city_id' => $cityId,
+            'name' => $name,
+            'sort_order' => (int) (Barangay::query()->where('city_id', $cityId)->max('sort_order') ?? 0) + 1,
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function deleteBarangay(string $id): \Illuminate\Http\JsonResponse
+    {
+        Barangay::query()->whereKey((int) $id)->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function storeCategory(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $v = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+        ]);
+        $name = trim($v['name']);
+        $slug = Slugify::uniqueCategorySlug(
+            $name,
+            fn (string $s) => Category::query()->where('slug', $s)->exists(),
+        );
+        Category::query()->create([
+            'name' => $name,
+            'slug' => $slug,
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function updateCategory(Request $request, string $id): \Illuminate\Http\JsonResponse
+    {
+        $v = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+        ]);
+        $cat = Category::query()->findOrFail((int) $id);
+        $name = trim($v['name']);
+        if ($name === $cat->name) {
+            return response()->json(['ok' => true]);
+        }
+        $slug = Slugify::uniqueCategorySlug(
+            $name,
+            fn (string $s) => Category::query()->where('slug', $s)->where('id', '!=', $cat->id)->exists(),
+        );
+        $cat->update([
+            'name' => $name,
+            'slug' => $slug,
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function deleteCategory(string $id): \Illuminate\Http\JsonResponse
+    {
+        $cid = (int) $id;
+        if (Product::query()->where('category_id', $cid)->exists()) {
+            return response()->json([
+                'error' => 'This category still has products. Reassign or remove those products first.',
+            ], 422);
+        }
+        Category::query()->whereKey($cid)->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function storeProductUnit(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $v = $request->validate([
+            'code' => [
+                'required',
+                'string',
+                'max:32',
+                'regex:/^[a-zA-Z][a-zA-Z0-9_-]{0,30}$/',
+                Rule::unique('product_units', 'code'),
+            ],
+            'label' => ['required', 'string', 'max:120'],
+            'sortOrder' => ['nullable', 'integer', 'min:0', 'max:32767'],
+        ]);
+        $maxOrder = (int) (ProductUnit::query()->max('sort_order') ?? 0);
+        $sort = isset($v['sortOrder']) ? (int) $v['sortOrder'] : $maxOrder + 10;
+        ProductUnit::query()->create([
+            'code' => $v['code'],
+            'label' => trim($v['label']),
+            'sort_order' => $sort,
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function updateProductUnit(Request $request, string $id): \Illuminate\Http\JsonResponse
+    {
+        $v = $request->validate([
+            'label' => ['sometimes', 'required', 'string', 'max:120'],
+            'sortOrder' => ['sometimes', 'required', 'integer', 'min:0', 'max:32767'],
+        ]);
+        $u = ProductUnit::query()->findOrFail((int) $id);
+        if (array_key_exists('label', $v)) {
+            $u->label = trim($v['label']);
+        }
+        if (array_key_exists('sortOrder', $v)) {
+            $u->sort_order = (int) $v['sortOrder'];
+        }
+        $u->save();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function deleteProductUnit(string $id): \Illuminate\Http\JsonResponse
+    {
+        $u = ProductUnit::query()->findOrFail((int) $id);
+        if (ProductUnit::query()->count() <= 1) {
+            return response()->json(['error' => 'At least one unit must remain.'], 422);
+        }
+        if (Product::query()->where('unit', $u->code)->exists()
+            || PricePost::query()->where('unit', $u->code)->exists()) {
+            return response()->json([
+                'error' => 'This unit is still used on products or price posts.',
+            ], 422);
+        }
+        $u->delete();
+
+        return response()->json(['ok' => true]);
+    }
+}
