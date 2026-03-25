@@ -21,6 +21,7 @@ export function EstablishmentPage() {
   const { slug } = useParams<{ slug: string }>()
   const [searchParams] = useSearchParams()
   const [data, setData] = useState<EstPayload | null>(null)
+  const [postsVersion, setPostsVersion] = useState(0)
   const [notFound, setNotFound] = useState(false)
 
   const lat = searchParams.get('lat')
@@ -49,7 +50,7 @@ export function EstablishmentPage() {
     return () => {
       cancelled = true
     }
-  }, [slug, lat, lng, radiusKm])
+  }, [slug, lat, lng, radiusKm, postsVersion])
 
   if (!slug) return null
   if (notFound) {
@@ -74,7 +75,9 @@ export function EstablishmentPage() {
         {data.posts.length === 0 ? (
           <p className="col-span-full text-slate-500">No posts for this store yet.</p>
         ) : (
-          data.posts.map((post) => <PostCard key={post.id} post={post} />)
+          data.posts.map((post) => (
+            <PostCard key={post.id} post={post} onMutate={() => setPostsVersion((v) => v + 1)} />
+          ))
         )}
       </section>
       <p className="mt-8">

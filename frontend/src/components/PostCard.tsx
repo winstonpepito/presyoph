@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { EditPricePostModal } from './EditPricePostModal'
+import { apiFetch } from '../lib/api'
 import type { PricePostView } from '../types/post'
 import { formatEstablishmentAddress } from '../lib/formatEstablishmentAddress'
 import { formatPerUnit } from '../lib/formatUnit'
@@ -14,10 +17,36 @@ function priceLabel(p: PricePostView): string {
   return '—'
 }
 
-export function PostCard({ post, showRank }: { post: PricePostView; showRank?: number }) {
+export function PostCard({
+  post,
+  showRank,
+  onMutate,
+}: {
+  post: PricePostView
+  showRank?: number
+  onMutate?: () => void
+}) {
+  const [editOpen, setEditOpen] = useState(false)
+  const [delPending, setDelPending] = useState(false)
+  const canEdit = post.canEdit ?? false
+  const canDelete = post.canDelete ?? false
   const perUnit = formatPerUnit(post.unit, post.unitQuantity)
   const establishmentAddr = formatEstablishmentAddress(post.establishment)
+
+  async function handleDelete() {
+    if (!confirm('Delete this price post permanently?')) return
+    setDelPending(true)
+    try {
+      const r = await apiFetch(`/api/v1/posts/${post.id}`, { method: 'DELETE' })
+      if (r.ok) onMutate?.()
+      else alert('Could not delete this post.')
+    } finally {
+      setDelPending(false)
+    }
+  }
+
   return (
+    <>
     <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -60,14 +89,44 @@ export function PostCard({ post, showRank }: { post: PricePostView; showRank?: n
       {post.locationLabel && <p className="text-xs text-slate-400">{post.locationLabel}</p>}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-400">
         <span>{new Date(post.createdAt).toLocaleString()}</span>
-        {post.anonymous ? (
-          <span>Anonymous</span>
-        ) : post.user ? (
-          <Link to={`/profile/${post.user.id}`} className="hover:underline">
-            {post.user.name ?? 'User'}
-          </Link>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {post.anonymous ? (
+            <span>Anonymous</span>
+          ) : post.user ? (
+            <Link to={`/profile/${post.user.id}`} className="hover:underline">
+              {post.user.name ?? 'User'}
+            </Link>
+          ) : null}
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() => setEditOpen(true)}
+              className="font-medium text-emerald-600 hover:underline"
+            >
+              Edit
+            </button>
+          ) : null}
+          {canDelete ? (
+            <button
+              type="button"
+              disabled={delPending}
+              onClick={() => void handleDelete()}
+              className="font-medium text-red-600 hover:underline disabled:opacity-50"
+            >
+              {delPending ? 'Deleting…' : 'Delete'}
+            </button>
+          ) : null}
+        </div>
       </div>
     </article>
+    {editOpen ? (
+      <EditPricePostModal
+        post={post}
+        isOpen={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => onMutate?.()}
+      />
+    ) : null}
+    </>
   )
 }

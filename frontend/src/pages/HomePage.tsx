@@ -14,6 +14,7 @@ export function HomePage() {
   const navigate = useNavigate()
   const { user, status } = useAuth()
   const [posts, setPosts] = useState<PricePostView[] | null>(null)
+  const [postsVersion, setPostsVersion] = useState(0)
   const [followingDirectory, setFollowingDirectory] = useState<FollowDirectoryUser[] | null>(null)
 
   const lat = searchParams.get('lat')
@@ -52,7 +53,7 @@ export function HomePage() {
     return () => {
       cancelled = true
     }
-  }, [lat, lng, radiusKm, view, user?.id, productQ])
+  }, [lat, lng, radiusKm, view, user?.id, productQ, postsVersion])
 
   useEffect(() => {
     if (view !== 'following' || !user?.id) {
@@ -252,7 +253,9 @@ export function HomePage() {
             )}
           </p>
         ) : (
-          posts.map((post) => <PostCard key={post.id} post={post} />)
+          posts.map((post) => (
+            <PostCard key={post.id} post={post} onMutate={() => setPostsVersion((v) => v + 1)} />
+          ))
         )}
       </section>
     </div>

@@ -7,6 +7,7 @@ use App\Http\Resources\PricePostResource;
 use App\Models\Establishment;
 use App\Models\PricePost;
 use App\Models\Product;
+use App\Models\User;
 use App\Http\Support\OptionalSanctum;
 use App\Services\PostQueryService;
 use App\Services\SettingsService;
@@ -214,6 +215,156 @@ class PostController extends Controller
         $row->save();
 
         return response()->json(['ok' => true]);
+    }
+
+    public function update(Request $request, PricePost $post): \Illuminate\Http\JsonResponse
+    {
+        $post->load(['product.category', 'establishment']);
+        $auth = $request->user();
+        if (! $this->userCanManagePricePost($auth, $post)) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        $data = $request->all();
+        if (($data['categoryId'] ?? null) === '' || ($data['categoryId'] ?? null) === null) {
+            $data['categoryId'] = null;
+        }
+        $request->merge($data);
+
+        $unitCodes = ProductUnit::allCodes();
+        if ($unitCodes === []) {
+            return response()->json(['error' => 'No product units configured. Add units in admin.'], 503);
+        }
+
+        $validated = $request->validate([
+            'categoryId' => ['sometimes', 'nullable', 'string', 'exists:categories,id'],
+            'productName' => ['required', 'string', 'max:200'],
+            'establishmentName' => ['required', 'string', 'max:200'],
+            'establishmentAddress' => ['nullable', 'string', 'max:500'],
+            'establishmentBarangay' => ['nullable', 'string', 'max:200'],
+            'establishmentCity' => ['nullable', 'string', 'max:200'],
+            'priceMode' => ['required', 'in:exact,range'],
+            'priceExact' => ['nullable', 'string'],
+            'priceMin' => ['nullable', 'string'],
+            'priceMax' => ['nullable', 'string'],
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'locationLabel' => ['nullable', 'string', 'max:300'],
+            'unit' => ['sometimes', 'nullable', 'string', Rule::in($unitCodes)],
+            'unitQuantity' => ['sometimes', 'nullable', 'numeric', 'gt:0'],
+            'productBrand' => ['sometimes', 'nullable', 'string', 'max:120'],
+        ]);
+
+        if ($validated['priceMode'] === 'exact') {
+            $n = (float) ($validated['priceExact'] ?? '');
+            if ($validated['priceExact'] === null || $validated['priceExact'] === '' || $n < 0 || is_nan($n)) {
+                return response()->json(['error' => 'Valid exact price required'], 422);
+            }
+        } else {
+            $min = (float) ($validated['priceMin'] ?? '');
+            $max = (float) ($validated['priceMax'] ?? '');
+            if (
+                $validated['priceMin'] === null || $validated['priceMin'] === ''
+                || $validated['priceMax'] === null || $validated['priceMax'] === ''
+                || $min < 0 || $max < 0 || $min > $max || is_nan($min) || is_nan($max)
+            ) {
+                return response()->json(['error' => 'Valid min/max range required'], 422);
+            }
+        }
+
+        $categoryId = isset($validated['categoryId']) && $validated['categoryId'] !== null && $validated['categoryId'] !== ''
+            ? (int) $validated['categoryId']
+            : null;
+        $unit = isset($validated['unit']) && $validated['unit'] !== '' && $validated['unit'] !== null
+            ? $validated['unit']
+            : 'pcs';
+        $unitQtyStr = isset($validated['unitQuantity']) && $validated['unitQuantity'] !== '' && $validated['unitQuantity'] !== null
+            ? (string) $validated['unitQuantity']
+            : '1';
+
+        $brandTrim = isset($validated['productBrand']) ? trim((string) $validated['productBrand']) : '';
+        $brand = $brandTrim !== '' ? $brandTrim : null;
+
+        $product = $post->product;
+        $baseSlug = Slugify::slugify($validated['productName']);
+        if ($brand !== null) {
+            $brandSlug = Slugify::slugify($brand);
+            if ($brandSlug !== '') {
+                $baseSlug = $baseSlug.'-'.$brandSlug;
+            }
+        }
+        $pid = $product->id;
+        $slug = Slugify::uniqueProductSlug($baseSlug, fn (string $s) => Product::query()->where('slug', $s)->where('id', '!=', $pid)->exists());
+
+        $product->update([
+            'slug' => $slug,
+            'name' => trim($validated['productName']),
+            'brand' => $brand,
+            'category_id' => $categoryId,
+            'unit' => $unit,
+            'unit_quantity' => $unitQtyStr,
+        ]);
+
+        $establishment = $post->establishment;
+        $eid = $establishment->id;
+        $estSlug = Slugify::uniqueEstablishmentSlug(
+            Slugify::slugify($validated['establishmentName']),
+            fn (string $s) => Establishment::query()->where('slug', $s)->where('id', '!=', $eid)->exists(),
+        );
+
+        $establishment->update([
+            'slug' => $estSlug,
+            'name' => trim($validated['establishmentName']),
+            'address_line' => isset($validated['establishmentAddress']) ? trim((string) $validated['establishmentAddress']) ?: null : null,
+            'barangay' => isset($validated['establishmentBarangay']) ? trim((string) $validated['establishmentBarangay']) ?: null : null,
+            'city' => isset($validated['establishmentCity']) ? trim((string) $validated['establishmentCity']) ?: null : null,
+            'latitude' => (float) $validated['latitude'],
+            'longitude' => (float) $validated['longitude'],
+        ]);
+
+        $post->latitude = (float) $validated['latitude'];
+        $post->longitude = (float) $validated['longitude'];
+        $post->location_label = isset($validated['locationLabel']) ? trim((string) $validated['locationLabel']) ?: null : null;
+        $post->unit = $unit;
+        $post->unit_quantity = $unitQtyStr;
+        $post->price_exact = null;
+        $post->price_min = null;
+        $post->price_max = null;
+        if ($validated['priceMode'] === 'exact') {
+            $post->price_exact = $validated['priceExact'];
+        } else {
+            $post->price_min = $validated['priceMin'];
+            $post->price_max = $validated['priceMax'];
+        }
+        $post->save();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function destroy(Request $request, PricePost $post): \Illuminate\Http\JsonResponse
+    {
+        $auth = $request->user();
+        if (! $this->userCanManagePricePost($auth, $post)) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+        $post->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    private function userCanManagePricePost(?User $auth, PricePost $post): bool
+    {
+        if ($auth === null) {
+            return false;
+        }
+        if (($auth->role ?? 'USER') === 'ADMIN') {
+            return true;
+        }
+        if ($post->user_id === null) {
+            return false;
+        }
+
+        return (int) $post->user_id === (int) $auth->id;
     }
 
     private function optionalSanctumUserId(Request $request): ?int

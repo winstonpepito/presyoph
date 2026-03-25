@@ -28,4 +28,6 @@ export type PricePostView = {
     city: string | null
   }
   user: { id: string; name: string | null; image: string | null } | null
+  canEdit?: boolean
+  canDelete?: boolean
 }

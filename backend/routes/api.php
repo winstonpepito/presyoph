@@ -32,6 +32,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/meta', MetaController::class);
     Route::get('/posts', [PostController::class, 'index']);
     Route::post('/posts', [PostController::class, 'store']);
+    Route::patch('/posts/{post}', [PostController::class, 'update'])->middleware('auth:sanctum');
+    Route::delete('/posts/{post}', [PostController::class, 'destroy'])->middleware('auth:sanctum');
     Route::get('/search', SearchController::class);
     Route::get('/banners', BannerController::class);
     Route::get('/categories', [CategoryController::class, 'index']);

@@ -19,6 +19,7 @@ export function ProfilePage() {
   const { id } = useParams<{ id: string }>()
   const { user: sessionUser, refresh } = useAuth()
   const [data, setData] = useState<ProfilePayload | null>(null)
+  const [postsVersion, setPostsVersion] = useState(0)
   const [notFound, setNotFound] = useState(false)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -53,7 +54,7 @@ export function ProfilePage() {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, postsVersion])
 
   useEffect(() => {
     return () => {
@@ -412,7 +413,9 @@ export function ProfilePage() {
         {data.posts.length === 0 ? (
           <p className="col-span-full text-slate-500">No public posts.</p>
         ) : (
-          data.posts.map((post) => <PostCard key={post.id} post={post} />)
+          data.posts.map((post) => (
+            <PostCard key={post.id} post={post} onMutate={() => setPostsVersion((v) => v + 1)} />
+          ))
         )}
       </section>
       <p className="mt-8">

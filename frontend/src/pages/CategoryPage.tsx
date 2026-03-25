@@ -22,6 +22,7 @@ export function CategoryPage() {
   const { slug } = useParams<{ slug: string }>()
   const [searchParams] = useSearchParams()
   const [data, setData] = useState<CategoryPayload | null>(null)
+  const [postsVersion, setPostsVersion] = useState(0)
   const [notFound, setNotFound] = useState(false)
 
   const lat = searchParams.get('lat')
@@ -50,7 +51,7 @@ export function CategoryPage() {
     return () => {
       cancelled = true
     }
-  }, [slug, lat, lng, radiusKm])
+  }, [slug, lat, lng, radiusKm, postsVersion])
 
   if (!slug) return null
   if (notFound) {
@@ -92,7 +93,14 @@ export function CategoryPage() {
         {data.posts.length === 0 ? (
           <p className="col-span-full text-slate-500">No prices in this category yet.</p>
         ) : (
-          data.posts.map((post, i) => <PostCard key={post.id} post={post} showRank={i + 1} />)
+          data.posts.map((post, i) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              showRank={i + 1}
+              onMutate={() => setPostsVersion((v) => v + 1)}
+            />
+          ))
         )}
       </section>
     </div>

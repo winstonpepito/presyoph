@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Support\OptionalSanctum;
 use App\Models\PricePost;
 use App\Services\BannerService;
 use Illuminate\Http\Request;
@@ -61,6 +62,24 @@ class PricePostResource extends JsonResource
                 'name' => $p->user->name,
                 'image' => BannerService::publicImageUrl($p->user->image, $request->root()),
             ] : null),
+            'canEdit' => self::canManagePost($request, $p),
+            'canDelete' => self::canManagePost($request, $p),
         ];
+    }
+
+    private static function canManagePost(Request $request, PricePost $post): bool
+    {
+        $auth = OptionalSanctum::user($request);
+        if ($auth === null) {
+            return false;
+        }
+        if (($auth->role ?? 'USER') === 'ADMIN') {
+            return true;
+        }
+        if ($post->user_id === null) {
+            return false;
+        }
+
+        return (int) $post->user_id === (int) $auth->id;
     }
 }
