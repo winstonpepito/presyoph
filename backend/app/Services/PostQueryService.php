@@ -8,6 +8,7 @@ use App\Models\Category;
 use App\Models\Establishment;
 use App\Support\Geo;
 use App\Support\Pricing;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -67,15 +68,16 @@ class PostQueryService
             });
         }
 
-        $sorted = $filtered->sortBy(function (PricePost $p) {
+        // Keyword / filter: newest first, then cheapest. Default feed: cheapest first, then newest.
+        $sorted = $filtered->sortBy(function (PricePost $p) use ($term) {
             $amount = Pricing::comparablePrice(
                 $p->price_exact !== null ? (string) $p->price_exact : null,
                 $p->price_min !== null ? (string) $p->price_min : null,
                 $p->price_max !== null ? (string) $p->price_max : null,
             );
-            $tie = -($p->created_at?->timestamp ?? 0);
+            $recency = -($p->created_at?->timestamp ?? 0);
 
-            return [$amount, $tie];
+            return $term !== '' ? [$recency, $amount] : [$amount, $recency];
         })->values();
 
         return $sorted->take($limit)->values();
@@ -107,7 +109,23 @@ class PostQueryService
             })
             ->orderByDesc('created_at')
             ->limit($cap)
-            ->get()
+            ->get();
+
+        if ($term === '') {
+            return $posts->values();
+        }
+
+        return $posts
+            ->sortBy(function (PricePost $p) {
+                $amount = Pricing::comparablePrice(
+                    $p->price_exact !== null ? (string) $p->price_exact : null,
+                    $p->price_min !== null ? (string) $p->price_min : null,
+                    $p->price_max !== null ? (string) $p->price_max : null,
+                );
+                $recency = -($p->created_at?->timestamp ?? 0);
+
+                return [$recency, $amount];
+            })
             ->values();
     }
 
@@ -229,30 +247,77 @@ class PostQueryService
 
         $productIds = $products->pluck('id')->all();
         $cheapestByProductId = [];
+        $latestTsByProductId = [];
         if ($productIds !== []) {
             $priceRows = PricePost::query()
                 ->whereIn('product_id', $productIds)
-                ->get(['product_id', 'price_exact', 'price_min', 'price_max']);
+                ->get(['product_id', 'price_exact', 'price_min', 'price_max', 'created_at']);
             foreach ($priceRows->groupBy('product_id') as $pid => $rows) {
-                $cheapestByProductId[(int) $pid] = $rows
+                $pidInt = (int) $pid;
+                $cheapestByProductId[$pidInt] = $rows
                     ->map(fn (PricePost $row) => Pricing::comparablePrice(
                         $row->price_exact !== null ? (string) $row->price_exact : null,
                         $row->price_min !== null ? (string) $row->price_min : null,
                         $row->price_max !== null ? (string) $row->price_max : null,
                     ))
                     ->min();
+                $latestTsByProductId[$pidInt] = $rows
+                    ->map(fn (PricePost $row) => $row->created_at?->timestamp ?? 0)
+                    ->max() ?? 0;
             }
         }
-        $products = $products->sortBy(function (Product $p) use ($cheapestByProductId) {
+        $products = $products->sortBy(function (Product $p) use ($cheapestByProductId, $latestTsByProductId) {
             $low = $cheapestByProductId[$p->id] ?? INF;
+            $latest = $latestTsByProductId[$p->id] ?? 0;
 
-            return [$low, strtolower($p->name)];
+            return [-$latest, $low, strtolower($p->name)];
         })->values();
 
         $establishments = Establishment::query()
             ->whereRaw('LOWER(name) LIKE ?', ['%'.strtolower($term).'%'])
             ->limit(15)
             ->get();
+
+        $categoryIds = $categories->pluck('id')->all();
+        $latestTsByCategoryId = [];
+        if ($categoryIds !== []) {
+            $rows = PricePost::query()
+                ->join('products', 'products.id', '=', 'price_posts.product_id')
+                ->whereIn('products.category_id', $categoryIds)
+                ->groupBy('products.category_id')
+                ->selectRaw('products.category_id as category_id, MAX(price_posts.created_at) as latest_at')
+                ->get();
+            foreach ($rows as $row) {
+                $latestTsByCategoryId[(int) $row->category_id] = $row->latest_at
+                    ? (int) Carbon::parse($row->latest_at)->timestamp
+                    : 0;
+            }
+        }
+        $categories = $categories->sortBy(function (Category $c) use ($latestTsByCategoryId) {
+            $latest = $latestTsByCategoryId[$c->id] ?? 0;
+
+            return [-$latest, strtolower($c->name)];
+        })->values();
+
+        $establishmentIds = $establishments->pluck('id')->all();
+        $latestTsByEstablishmentId = [];
+        if ($establishmentIds !== []) {
+            $rows = PricePost::query()
+                ->whereIn('establishment_id', $establishmentIds)
+                ->groupBy('establishment_id')
+                ->selectRaw('establishment_id, MAX(created_at) as latest_at')
+                ->get();
+            foreach ($rows as $row) {
+                $latestTsByEstablishmentId[(int) $row->establishment_id] = $row->latest_at
+                    ? (int) Carbon::parse($row->latest_at)->timestamp
+                    : 0;
+            }
+        }
+        $establishments = $establishments->sortBy(function (Establishment $e) use ($latestTsByEstablishmentId) {
+            $latest = $latestTsByEstablishmentId[$e->id] ?? 0;
+
+            return [-$latest, strtolower($e->name)];
+        })->values();
 
         return [
             'categories' => $categories->map(fn (Category $c) => [

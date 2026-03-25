@@ -60,6 +60,7 @@ export function SearchPage() {
         <div className="mt-8 space-y-8">
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Categories</h2>
+            <p className="mt-1 text-xs text-slate-500">Sorted by most recent price activity in the category, then name.</p>
             <ul className="mt-2 space-y-1">
               {data.categories.map((c) => (
                 <li key={c.id}>
@@ -73,7 +74,9 @@ export function SearchPage() {
           </section>
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Products</h2>
-            <p className="mt-1 text-xs text-slate-500">Sorted by lowest reported price, then name.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Sorted by most recent price activity, then lowest reported price, then name.
+            </p>
             <ul className="mt-2 space-y-1">
               {data.products.map((p) => (
                 <li key={p.id}>
@@ -96,6 +99,7 @@ export function SearchPage() {
           </section>
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Establishments</h2>
+            <p className="mt-1 text-xs text-slate-500">Sorted by most recent price post at the store, then name.</p>
             <ul className="mt-2 space-y-1">
               {data.establishments.map((e) => (
                 <li key={e.id}>
