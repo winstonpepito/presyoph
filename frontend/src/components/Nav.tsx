@@ -15,7 +15,7 @@ export function Nav() {
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
         <Link to="/" className="text-lg font-semibold tracking-tight text-slate-900">
-          PriceMonitor<span className="text-emerald-600">PH</span>
+          Tag<span className="text-emerald-600">Pila</span>
         </Link>
         <nav className="flex flex-wrap items-center gap-1 sm:gap-2">
           {links.map(({ href, label }) => (

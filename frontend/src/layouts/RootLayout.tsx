@@ -9,7 +9,7 @@ export function RootLayout() {
         <Outlet />
       </main>
       <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500">
-        PriceMonitorPH — prices are user-submitted and may be inaccurate.
+        TagPila — prices are user-submitted and may be inaccurate.
       </footer>
     </>
   )

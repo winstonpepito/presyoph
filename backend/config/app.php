@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'PriceMonitorPH'),
+    'name' => env('APP_NAME', 'TagPila'),
 
     /*
     |--------------------------------------------------------------------------

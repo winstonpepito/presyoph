@@ -35,7 +35,7 @@ class GeoCityResolver
         try {
             $response = Http::timeout(8)
                 ->withHeaders([
-                    'User-Agent' => 'PriceMonitorPH/1.0 (local price crowdsourcing; contact: admin@localhost)',
+                    'User-Agent' => 'TagPila/1.0 (local price crowdsourcing; contact: admin@localhost)',
                 ])
                 ->get('https://nominatim.openstreetmap.org/reverse', [
                     'lat' => $lat,
