@@ -15,7 +15,7 @@ class BannerService
     /**
      * @return array{strategy: 'STATIC'|'ROTATE', items: list<array{id: string, imageUrl: string, href: string, alt: string}>}
      */
-    public function resolveForSlot(string $slotKey, ?Carbon $now = null, ?string $publicUrlRoot = null): array
+    public function resolveForSlot(string $slotKey, ?Carbon $now = null): array
     {
         $now = $now ?? Carbon::now();
         $strategy = $this->settings->bannerStrategy($slotKey);
@@ -38,7 +38,7 @@ class BannerService
 
         $items = $active->map(fn (BannerAd $r) => [
             'id' => (string) $r->id,
-            'imageUrl' => self::publicImageUrl($r->image_url, $publicUrlRoot),
+            'imageUrl' => self::spaStorageOrAbsoluteUrl($r->image_url),
             'href' => $r->href ?? '',
             'alt' => $r->alt ?? '',
         ])->values()->all();
@@ -48,6 +48,24 @@ class BannerService
         }
 
         return ['strategy' => 'ROTATE', 'items' => $items];
+    }
+
+    /**
+     * Path for SPA <img src>: root-relative /storage/… so the client can prefix VITE_API_URL (or dev proxy).
+     * Legacy absolute http(s) URLs are returned unchanged.
+     */
+    public static function spaStorageOrAbsoluteUrl(?string $stored): string
+    {
+        if ($stored === null || $stored === '') {
+            return '';
+        }
+        if (preg_match('#^https?://#i', $stored)) {
+            return $stored;
+        }
+
+        $path = self::normalizePublicDiskPath($stored);
+
+        return '/storage/'.$path;
     }
 
     /**
@@ -64,11 +82,21 @@ class BannerService
             return $stored;
         }
 
-        $path = str_replace('\\', '/', ltrim($stored, '/'));
+        $path = self::normalizePublicDiskPath($stored);
         if ($publicUrlRoot !== null && $publicUrlRoot !== '') {
             return rtrim($publicUrlRoot, '/').'/storage/'.$path;
         }
 
         return Storage::disk('public')->url($path);
+    }
+
+    private static function normalizePublicDiskPath(string $stored): string
+    {
+        $path = str_replace('\\', '/', ltrim($stored, '/'));
+        if (str_starts_with($path, 'storage/')) {
+            $path = substr($path, strlen('storage/'));
+        }
+
+        return $path;
     }
 }
