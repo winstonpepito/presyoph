@@ -1,16 +1,28 @@
-const API_BASE = import.meta.env.VITE_API_URL || ''
+/**
+ * API origin: VITE_API_URL at build time, or at runtime <meta name="pm-api-base" content="https://api.example.com" />
+ * when the static site and API are on different hosts and the env var was not set during build.
+ */
+function getApiBase(): string {
+  const fromEnv = (import.meta.env.VITE_API_URL as string | undefined)?.trim()
+  if (fromEnv) return fromEnv.replace(/\/$/, '')
+  if (typeof document !== 'undefined') {
+    const meta = document.querySelector('meta[name="pm-api-base"]')?.getAttribute('content')?.trim()
+    if (meta) return meta.replace(/\/$/, '')
+  }
+  return ''
+}
 
 export function apiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`
-  return `${API_BASE}${p}`
+  return `${getApiBase()}${p}`
 }
 
-/** Use API origin for uploaded files when the server returns a root-relative /storage/… URL. */
+/** Prefix relative paths with API origin; pass through absolute http(s) URLs (e.g. banner asset URLs). */
 export function mediaUrl(urlOrPath: string): string {
   if (!urlOrPath) return ''
   if (/^https?:\/\//i.test(urlOrPath)) return urlOrPath
   const p = urlOrPath.startsWith('/') ? urlOrPath : `/${urlOrPath}`
-  return `${API_BASE}${p}`
+  return `${getApiBase()}${p}`
 }
 
 export type ApiFetchOptions = RequestInit & { skipAuth?: boolean }

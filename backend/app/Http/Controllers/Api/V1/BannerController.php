@@ -16,6 +16,6 @@ class BannerController extends Controller
     {
         $slot = (string) $request->query('slot', 'home_top');
 
-        return response()->json($this->banners->resolveForSlot($slot, null));
+        return response()->json($this->banners->resolveForSlot($slot, null, $request->getSchemeAndHttpHost()));
     }
 }

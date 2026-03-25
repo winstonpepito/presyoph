@@ -13,9 +13,10 @@ class BannerService
     ) {}
 
     /**
+     * @param  string|null  $publicOrigin  e.g. $request->getSchemeAndHttpHost() for banner image URLs (https + host as the client sees it).
      * @return array{strategy: 'STATIC'|'ROTATE', items: list<array{id: string, imageUrl: string, href: string, alt: string}>}
      */
-    public function resolveForSlot(string $slotKey, ?Carbon $now = null): array
+    public function resolveForSlot(string $slotKey, ?Carbon $now = null, ?string $publicOrigin = null): array
     {
         $now = $now ?? Carbon::now();
         $strategy = $this->settings->bannerStrategy($slotKey);
@@ -38,7 +39,7 @@ class BannerService
 
         $items = $active->map(fn (BannerAd $r) => [
             'id' => (string) $r->id,
-            'imageUrl' => self::spaStorageOrAbsoluteUrl($r->image_url),
+            'imageUrl' => self::spaStorageOrAbsoluteUrl($r->image_url, $publicOrigin),
             'href' => $r->href ?? '',
             'alt' => $r->alt ?? '',
         ])->values()->all();
@@ -51,10 +52,10 @@ class BannerService
     }
 
     /**
-     * Path for SPA <img src>: root-relative /storage/… so the client can prefix VITE_API_URL (or dev proxy).
-     * Legacy absolute http(s) URLs are returned unchanged.
+     * Full URL for SPA <img src>. Prefer $publicOrigin from the incoming request (correct https + host
+     * behind reverse proxies). Falls back to asset(). Legacy absolute http(s) URLs unchanged.
      */
-    public static function spaStorageOrAbsoluteUrl(?string $stored): string
+    public static function spaStorageOrAbsoluteUrl(?string $stored, ?string $publicOrigin = null): string
     {
         if ($stored === null || $stored === '') {
             return '';
@@ -64,8 +65,11 @@ class BannerService
         }
 
         $path = self::normalizePublicDiskPath($stored);
+        if ($publicOrigin !== null && $publicOrigin !== '') {
+            return rtrim($publicOrigin, '/').'/storage/'.$path;
+        }
 
-        return '/storage/'.$path;
+        return asset('storage/'.$path);
     }
 
     /**
