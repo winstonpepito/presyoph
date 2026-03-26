@@ -372,6 +372,83 @@ class PostQueryService
     }
 
     /**
+     * Lowest comparable price, then newest (same tie-break as search product rows).
+     *
+     * @param  Collection<int, PricePost>  $posts
+     */
+    private function pickRepresentativePricePost(Collection $posts): ?PricePost
+    {
+        if ($posts->isEmpty()) {
+            return null;
+        }
+
+        return $posts->sortBy(function (PricePost $post) {
+            return [
+                Pricing::comparablePrice(
+                    $post->price_exact !== null ? (string) $post->price_exact : null,
+                    $post->price_min !== null ? (string) $post->price_min : null,
+                    $post->price_max !== null ? (string) $post->price_max : null,
+                ),
+                -($post->created_at?->timestamp ?? 0),
+            ];
+        })->first();
+    }
+
+    /**
+     * @return array{
+     *     brand: ?string,
+     *     productName: ?string,
+     *     productSlug: ?string,
+     *     unit: ?string,
+     *     unitQuantity: ?string,
+     *     priceExact: ?string,
+     *     priceMin: ?string,
+     *     priceMax: ?string,
+     *     establishment: array<string, mixed>|null
+     * }
+     */
+    private function searchSampleFromPricePost(?PricePost $post): array
+    {
+        if ($post === null) {
+            return [
+                'brand' => null,
+                'productName' => null,
+                'productSlug' => null,
+                'unit' => null,
+                'unitQuantity' => null,
+                'priceExact' => null,
+                'priceMin' => null,
+                'priceMax' => null,
+                'establishment' => null,
+            ];
+        }
+
+        $pr = $post->product;
+        $est = $post->establishment;
+        $unit = $post->unit ?? $pr->unit;
+        $uq = $post->unit_quantity ?? $pr->unit_quantity;
+
+        return [
+            'brand' => $pr->brand !== null && $pr->brand !== '' ? $pr->brand : null,
+            'productName' => $pr->name,
+            'productSlug' => $pr->slug,
+            'unit' => $unit,
+            'unitQuantity' => $uq !== null && $uq !== '' ? (string) $uq : null,
+            'priceExact' => $post->price_exact !== null ? (string) $post->price_exact : null,
+            'priceMin' => $post->price_min !== null ? (string) $post->price_min : null,
+            'priceMax' => $post->price_max !== null ? (string) $post->price_max : null,
+            'establishment' => $est !== null ? [
+                'id' => (string) $est->id,
+                'name' => $est->name,
+                'slug' => $est->slug,
+                'addressLine' => $est->address_line,
+                'barangay' => $est->barangay,
+                'city' => $est->city,
+            ] : null,
+        ];
+    }
+
+    /**
      * @return array{categories: array, products: array, establishments: array}
      */
     public function searchProductsAndCategories(string $q): array
@@ -420,18 +497,7 @@ class PostQueryService
                 $latestTsByProductId[$pidInt] = $rows
                     ->map(fn (PricePost $row) => $row->created_at?->timestamp ?? 0)
                     ->max() ?? 0;
-                $bestPostByProductId[$pidInt] = $rows
-                    ->sortBy(function (PricePost $post) {
-                        return [
-                            Pricing::comparablePrice(
-                                $post->price_exact !== null ? (string) $post->price_exact : null,
-                                $post->price_min !== null ? (string) $post->price_min : null,
-                                $post->price_max !== null ? (string) $post->price_max : null,
-                            ),
-                            -($post->created_at?->timestamp ?? 0),
-                        ];
-                    })
-                    ->first();
+                $bestPostByProductId[$pidInt] = $this->pickRepresentativePricePost($rows);
             }
         }
         $products = $products->sortBy(function (Product $p) use ($cheapestByProductId, $latestTsByProductId) {
@@ -467,6 +533,20 @@ class PostQueryService
             return [-$latest, strtolower($c->name)];
         })->values();
 
+        /** @var array<int, PricePost|null> */
+        $bestPostByCategoryId = [];
+        if ($categoryIds !== []) {
+            $catPosts = PricePost::query()
+                ->with(['product', 'establishment'])
+                ->whereHas('product', function (Builder $q) use ($categoryIds) {
+                    $q->whereIn('category_id', $categoryIds);
+                })
+                ->get();
+            foreach ($catPosts->groupBy(fn (PricePost $p) => (int) $p->product->category_id) as $cid => $rows) {
+                $bestPostByCategoryId[(int) $cid] = $this->pickRepresentativePricePost($rows);
+            }
+        }
+
         $establishmentIds = $establishments->pluck('id')->all();
         $latestTsByEstablishmentId = [];
         if ($establishmentIds !== []) {
@@ -481,6 +561,19 @@ class PostQueryService
                     : 0;
             }
         }
+
+        /** @var array<int, PricePost|null> */
+        $bestPostByEstablishmentId = [];
+        if ($establishmentIds !== []) {
+            $estPosts = PricePost::query()
+                ->with(['product', 'establishment'])
+                ->whereIn('establishment_id', $establishmentIds)
+                ->get();
+            foreach ($estPosts->groupBy('establishment_id') as $eid => $rows) {
+                $bestPostByEstablishmentId[(int) $eid] = $this->pickRepresentativePricePost($rows);
+            }
+        }
+
         $establishments = $establishments->sortBy(function (Establishment $e) use ($latestTsByEstablishmentId) {
             $latest = $latestTsByEstablishmentId[$e->id] ?? 0;
 
@@ -488,11 +581,11 @@ class PostQueryService
         })->values();
 
         return [
-            'categories' => $categories->map(fn (Category $c) => [
+            'categories' => $categories->map(fn (Category $c) => array_merge([
                 'id' => (string) $c->id,
                 'name' => $c->name,
                 'slug' => $c->slug,
-            ])->all(),
+            ], $this->searchSampleFromPricePost($bestPostByCategoryId[$c->id] ?? null)))->all(),
             'products' => $products->map(function (Product $p) use ($bestPostByProductId) {
                 $rep = $bestPostByProductId[$p->id] ?? null;
                 $est = $rep?->establishment;
@@ -524,11 +617,14 @@ class PostQueryService
                     ] : null,
                 ];
             })->all(),
-            'establishments' => $establishments->map(fn (Establishment $e) => [
+            'establishments' => $establishments->map(fn (Establishment $e) => array_merge([
                 'id' => (string) $e->id,
                 'name' => $e->name,
                 'slug' => $e->slug,
-            ])->all(),
+                'addressLine' => $e->address_line,
+                'barangay' => $e->barangay,
+                'city' => $e->city,
+            ], $this->searchSampleFromPricePost($bestPostByEstablishmentId[$e->id] ?? null)))->all(),
         ];
     }
 }
