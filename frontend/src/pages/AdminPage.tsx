@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import type { LocationsPayload } from '../types/locations'
 
+type SearchSynonymGroupRow = { id: string; type: 'product' | 'area'; terms: string[] }
+
 type AdminState = {
   anonymousEnabled: boolean
   homeTopStrategy: 'STATIC' | 'ROTATE'
   banners: { id: string; isActive: boolean; slotKey: string }[]
   categories: { id: string; name: string; slug: string }[]
   productUnits: { id: string; code: string; label: string; sortOrder: number }[]
+  searchSynonymGroups: SearchSynonymGroupRow[]
 }
 
 export function AdminPage() {
@@ -22,12 +25,25 @@ export function AdminPage() {
       return
     }
     const j = (await r.json()) as Partial<AdminState>
+    const rawSyn: unknown[] = Array.isArray(j.searchSynonymGroups) ? j.searchSynonymGroups : []
+    const searchSynonymGroups: SearchSynonymGroupRow[] = []
+    for (const item of rawSyn) {
+      if (item === null || typeof item !== 'object') continue
+      const g = item as { id?: unknown; type?: unknown; terms?: unknown }
+      const id = String(g.id ?? '')
+      if (!id) continue
+      const type: 'product' | 'area' = g.type === 'area' ? 'area' : 'product'
+      const terms = Array.isArray(g.terms) ? g.terms.map((t) => String(t)) : []
+      searchSynonymGroups.push({ id, type, terms })
+    }
+
     setState({
       anonymousEnabled: !!j.anonymousEnabled,
       homeTopStrategy: j.homeTopStrategy === 'STATIC' ? 'STATIC' : 'ROTATE',
       banners: Array.isArray(j.banners) ? j.banners : [],
       categories: Array.isArray(j.categories) ? j.categories : [],
       productUnits: Array.isArray(j.productUnits) ? j.productUnits : [],
+      searchSynonymGroups,
     })
     setErr(null)
   }
@@ -154,6 +170,55 @@ export function AdminPage() {
 
   async function deleteProductUnit(id: string) {
     const r = await apiFetch(`/api/admin/product-units/${id}`, { method: 'DELETE' })
+    if (r.ok) void load()
+  }
+
+  function parseSynonymTerms(raw: string): string[] {
+    return raw
+      .split(/[,;\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+
+  async function addSearchSynonymGroup(type: 'product' | 'area', termsRaw: string) {
+    const terms = parseSynonymTerms(termsRaw)
+    if (terms.length === 0) {
+      alert('Add at least one term (comma or newline separated).')
+      return
+    }
+    const r = await apiFetch('/api/admin/search-synonym-groups', {
+      method: 'POST',
+      body: JSON.stringify({ type, terms }),
+    })
+    if (!r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { error?: string }
+      alert(j.error ?? 'Could not save synonym group.')
+      return
+    }
+    void load()
+  }
+
+  async function saveSearchSynonymGroup(id: string, termsRaw: string) {
+    const terms = parseSynonymTerms(termsRaw)
+    if (terms.length === 0) {
+      alert('Add at least one term.')
+      return
+    }
+    const r = await apiFetch(`/api/admin/search-synonym-groups/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ terms }),
+    })
+    if (!r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { error?: string }
+      alert(j.error ?? 'Could not update synonym group.')
+      return
+    }
+    void load()
+  }
+
+  async function deleteSearchSynonymGroup(id: string) {
+    if (!confirm('Delete this synonym group?')) return
+    const r = await apiFetch(`/api/admin/search-synonym-groups/${id}`, { method: 'DELETE' })
     if (r.ok) void load()
   }
 
@@ -346,6 +411,100 @@ export function AdminPage() {
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
           >
             Add unit
+          </button>
+        </form>
+      </section>
+
+      <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900">Home search synonyms</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Group alternate spellings or names for the same product or place. On the home page, the{' '}
+          <strong>product filter</strong> matches product name, brand, and category against any term in a{' '}
+          <strong>product</strong> group when the visitor’s search matches one of those terms. The <strong>area label</strong>{' '}
+          (with location set) filters posts to establishments whose name, city, barangay, or address contains any term in
+          an <strong>area</strong> group when the label matches a term. The label &quot;Current location&quot; is ignored for
+          text matching. Synonyms are case-insensitive.
+        </p>
+
+        <ul className="mt-4 space-y-4">
+          {state.searchSynonymGroups.map((g) => (
+            <li key={g.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+              <p className="text-xs font-semibold uppercase text-slate-500">
+                {g.type === 'product' ? 'Product' : 'Area'}
+              </p>
+              <form
+                className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const fd = new FormData(e.currentTarget)
+                  const raw = String(fd.get('terms') ?? '')
+                  void saveSearchSynonymGroup(g.id, raw)
+                }}
+              >
+                <div className="min-w-0 flex-1">
+                  <label className="text-xs text-slate-500">Terms (comma or newline separated)</label>
+                  <textarea
+                    name="terms"
+                    key={`${g.id}-${g.terms.join('|')}`}
+                    defaultValue={g.terms.join(', ')}
+                    rows={2}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteSearchSynonymGroup(g.id)}
+                  className="rounded-lg px-3 py-2 text-sm text-red-600 hover:underline"
+                >
+                  Delete
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+
+        <form
+          className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-6"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const fd = new FormData(e.currentTarget)
+            const type = fd.get('synType') === 'area' ? 'area' : 'product'
+            const raw = String(fd.get('synTerms') ?? '')
+            void addSearchSynonymGroup(type, raw)
+            e.currentTarget.reset()
+          }}
+        >
+          <div>
+            <label className="text-xs text-slate-500">New group type</label>
+            <select
+              name="synType"
+              className="mt-1 w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:w-auto"
+            >
+              <option value="product">Product (name / brand / category filter)</option>
+              <option value="area">Area (establishment location text)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">Terms</label>
+            <textarea
+              name="synTerms"
+              required
+              rows={3}
+              placeholder="e.g. bangus, bangos, milkfish"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-fit rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            Add synonym group
           </button>
         </form>
       </section>

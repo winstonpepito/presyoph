@@ -54,6 +54,10 @@ export function LocationBar() {
     <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end">
       <div className="min-w-0 flex-1">
         <label className="text-xs font-medium text-slate-500">Area label</label>
+        <p className="mt-0.5 text-[11px] text-slate-400">
+          Optional. With a map pin set, narrows the feed to stores/locations whose text matches this label (and admin
+          synonyms).
+        </p>
         <input
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
           placeholder="e.g. Carbon"

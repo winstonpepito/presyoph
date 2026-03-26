@@ -62,4 +62,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', EnsureUserIsAdmin::class])->
     Route::post('/product-units', [AdminController::class, 'storeProductUnit']);
     Route::patch('/product-units/{id}', [AdminController::class, 'updateProductUnit']);
     Route::delete('/product-units/{id}', [AdminController::class, 'deleteProductUnit']);
+    Route::post('/search-synonym-groups', [AdminController::class, 'storeSearchSynonymGroup']);
+    Route::patch('/search-synonym-groups/{id}', [AdminController::class, 'updateSearchSynonymGroup']);
+    Route::delete('/search-synonym-groups/{id}', [AdminController::class, 'deleteSearchSynonymGroup']);
 });

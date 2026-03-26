@@ -9,9 +9,11 @@ use App\Models\Category;
 use App\Models\PricePost;
 use App\Models\Product;
 use App\Models\ProductUnit;
+use App\Models\SearchSynonymGroup;
 use App\Services\SettingsService;
 use App\Support\Slugify;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -39,6 +41,11 @@ class AdminController extends Controller
             ->orderBy('code')
             ->get();
 
+        $searchSynonymGroups = SearchSynonymGroup::query()
+            ->with('terms')
+            ->orderBy('id')
+            ->get();
+
         return response()->json([
             'anonymousEnabled' => $anonymousEnabled,
             'homeTopStrategy' => $strategy,
@@ -57,6 +64,11 @@ class AdminController extends Controller
                 'code' => $u->code,
                 'label' => $u->label,
                 'sortOrder' => (int) $u->sort_order,
+            ])->all(),
+            'searchSynonymGroups' => $searchSynonymGroups->map(fn (SearchSynonymGroup $g) => [
+                'id' => (string) $g->id,
+                'type' => $g->type,
+                'terms' => $g->terms->pluck('term')->map(fn ($t) => (string) $t)->values()->all(),
             ])->all(),
         ]);
     }
@@ -272,6 +284,57 @@ class AdminController extends Controller
             ], 422);
         }
         $u->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function storeSearchSynonymGroup(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $v = $request->validate([
+            'type' => ['required', 'in:product,area'],
+            'terms' => ['required', 'array', 'min:1', 'max:40'],
+            'terms.*' => ['required', 'string', 'max:120'],
+        ]);
+        $terms = collect($v['terms'])->map(fn ($t) => trim((string) $t))->filter()->unique()->values()->all();
+        if ($terms === []) {
+            return response()->json(['error' => 'Add at least one non-empty term.'], 422);
+        }
+
+        DB::transaction(function () use ($v, $terms) {
+            $g = SearchSynonymGroup::query()->create(['type' => $v['type']]);
+            foreach ($terms as $t) {
+                $g->terms()->create(['term' => $t]);
+            }
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function updateSearchSynonymGroup(Request $request, string $id): \Illuminate\Http\JsonResponse
+    {
+        $g = SearchSynonymGroup::query()->findOrFail((int) $id);
+        $v = $request->validate([
+            'terms' => ['required', 'array', 'min:1', 'max:40'],
+            'terms.*' => ['required', 'string', 'max:120'],
+        ]);
+        $terms = collect($v['terms'])->map(fn ($t) => trim((string) $t))->filter()->unique()->values()->all();
+        if ($terms === []) {
+            return response()->json(['error' => 'Add at least one non-empty term.'], 422);
+        }
+
+        DB::transaction(function () use ($g, $terms) {
+            $g->terms()->delete();
+            foreach ($terms as $t) {
+                $g->terms()->create(['term' => $t]);
+            }
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function deleteSearchSynonymGroup(string $id): \Illuminate\Http\JsonResponse
+    {
+        SearchSynonymGroup::query()->whereKey((int) $id)->delete();
 
         return response()->json(['ok' => true]);
     }

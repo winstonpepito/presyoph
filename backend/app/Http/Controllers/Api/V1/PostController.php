@@ -38,6 +38,15 @@ class PostController extends Controller
         $qTrimmed = is_string($qRaw) ? trim($qRaw) : '';
         $keyword = $qTrimmed !== '' ? Str::limit($qTrimmed, 200, '') : null;
 
+        $labelRaw = $request->query('label');
+        $areaKeyword = null;
+        if (is_string($labelRaw) && trim($labelRaw) !== '') {
+            $labelTrim = trim($labelRaw);
+            if (mb_strtolower($labelTrim, 'UTF-8') !== 'current location') {
+                $areaKeyword = Str::limit($labelTrim, 200, '');
+            }
+        }
+
         $latN = $lat !== null && $lat !== '' ? (float) $lat : null;
         $lngN = $lng !== null && $lng !== '' ? (float) $lng : null;
 
@@ -66,7 +75,7 @@ class PostController extends Controller
                     $followingUserIds = [];
                 }
             }
-            $list = $this->posts->listRecentPosts($latN, $lngN, $radiusKm, $limit, $followingUserIds, $keyword);
+            $list = $this->posts->listRecentPosts($latN, $lngN, $radiusKm, $limit, $followingUserIds, $keyword, $areaKeyword);
         }
 
         return response()->json([

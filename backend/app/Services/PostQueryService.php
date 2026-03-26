@@ -6,6 +6,7 @@ use App\Models\PricePost;
 use App\Models\Product;
 use App\Models\Category;
 use App\Models\Establishment;
+use App\Models\SearchSynonymGroup;
 use App\Support\Geo;
 use App\Support\Pricing;
 use Carbon\Carbon;
@@ -14,6 +15,10 @@ use Illuminate\Support\Collection;
 
 class PostQueryService
 {
+    public function __construct(
+        private SearchSynonymService $searchSynonyms,
+    ) {}
+
     private function baseWith(): array
     {
         return [
@@ -34,31 +39,29 @@ class PostQueryService
         int $limit = 50,
         ?array $followingUserIds = null,
         ?string $keyword = null,
+        ?string $areaKeyword = null,
     ): Collection {
         if ($followingUserIds !== null) {
             if ($followingUserIds === []) {
                 return collect();
             }
 
-            return $this->listPostsFromFollowedUsers($followingUserIds, $limit, $keyword);
+            return $this->listPostsFromFollowedUsers($followingUserIds, $limit, $keyword, $areaKeyword);
         }
 
         $take = $limit * 3;
         $term = $keyword !== null ? trim($keyword) : '';
+        $productNeedles = $term !== ''
+            ? $this->searchSynonyms->expandTerms($term, SearchSynonymGroup::TYPE_PRODUCT)
+            : [];
+        $hasProductFilter = $productNeedles !== [];
+
+        $areaNeedles = $this->resolveAreaSearchNeedles($areaKeyword);
 
         $posts = PricePost::query()
             ->with($this->baseWith())
-            ->when($term !== '', function (Builder $query) use ($term) {
-                $like = '%'.strtolower($term).'%';
-                $query->whereHas('product', function (Builder $pq) use ($like) {
-                    $pq->where(function (Builder $inner) use ($like) {
-                        $inner->whereRaw('LOWER(products.name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(COALESCE(products.brand, \'\')) LIKE ?', [$like])
-                            ->orWhereHas('category', function (Builder $cq) use ($like) {
-                                $cq->whereRaw('LOWER(categories.name) LIKE ?', [$like]);
-                            });
-                    });
-                });
+            ->when($hasProductFilter, function (Builder $query) use ($productNeedles) {
+                $this->applyProductNeedlesToPricePostQuery($query, $productNeedles);
             })
             ->orderByDesc('created_at')
             ->limit($take)
@@ -71,8 +74,14 @@ class PostQueryService
             });
         }
 
+        if ($areaNeedles !== []) {
+            $filtered = $filtered->filter(function (PricePost $p) use ($areaNeedles) {
+                return $this->establishmentMatchesAreaNeedles($p->establishment, $areaNeedles);
+            });
+        }
+
         // Keyword / filter: newest first, then cheapest. Default feed: cheapest first, then newest.
-        $sorted = $filtered->sortBy(function (PricePost $p) use ($term) {
+        $sorted = $filtered->sortBy(function (PricePost $p) use ($hasProductFilter) {
             $amount = Pricing::comparablePrice(
                 $p->price_exact !== null ? (string) $p->price_exact : null,
                 $p->price_min !== null ? (string) $p->price_min : null,
@@ -80,10 +89,93 @@ class PostQueryService
             );
             $recency = -($p->created_at?->timestamp ?? 0);
 
-            return $term !== '' ? [$recency, $amount] : [$amount, $recency];
+            return $hasProductFilter ? [$recency, $amount] : [$amount, $recency];
         })->values();
 
         return $sorted->take($limit)->values();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function resolveAreaSearchNeedles(?string $areaKeyword): array
+    {
+        if ($areaKeyword === null) {
+            return [];
+        }
+        $raw = trim($areaKeyword);
+        if ($raw === '') {
+            return [];
+        }
+        if (mb_strtolower($raw, 'UTF-8') === 'current location') {
+            return [];
+        }
+
+        return $this->searchSynonyms->expandTerms($raw, SearchSynonymGroup::TYPE_AREA);
+    }
+
+    /**
+     * @param  list<string>  $needles
+     */
+    private function applyProductNeedlesToPricePostQuery(Builder $query, array $needles): void
+    {
+        $clean = [];
+        foreach ($needles as $raw) {
+            $n = mb_strtolower(trim((string) $raw), 'UTF-8');
+            if ($n !== '') {
+                $clean[] = $n;
+            }
+        }
+        if ($clean === []) {
+            return;
+        }
+
+        $query->whereHas('product', function (Builder $pq) use ($clean) {
+            $pq->where(function (Builder $wrap) use ($clean) {
+                foreach ($clean as $i => $n) {
+                    $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $n).'%';
+                    $group = function (Builder $inner) use ($like) {
+                        $inner->whereRaw('LOWER(products.name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(COALESCE(products.brand, \'\')) LIKE ?', [$like])
+                            ->orWhereHas('category', function (Builder $cq) use ($like) {
+                                $cq->whereRaw('LOWER(categories.name) LIKE ?', [$like]);
+                            });
+                    };
+                    if ($i === 0) {
+                        $wrap->where($group);
+                    } else {
+                        $wrap->orWhere($group);
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * @param  list<string>  $needles
+     */
+    private function establishmentMatchesAreaNeedles(?Establishment $est, array $needles): bool
+    {
+        if ($est === null) {
+            return false;
+        }
+        $hay = mb_strtolower(
+            trim(
+                ($est->name ?? '').' '.
+                ($est->city ?? '').' '.
+                ($est->barangay ?? '').' '.
+                ($est->address_line ?? ''),
+            ),
+            'UTF-8',
+        );
+        foreach ($needles as $n) {
+            $n = mb_strtolower(trim((string) $n), 'UTF-8');
+            if ($n !== '' && str_contains($hay, $n)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -92,32 +184,39 @@ class PostQueryService
      * @param  list<int>  $followingUserIds
      * @return Collection<int, PricePost>
      */
-    private function listPostsFromFollowedUsers(array $followingUserIds, int $limit, ?string $keyword): Collection
-    {
+    private function listPostsFromFollowedUsers(
+        array $followingUserIds,
+        int $limit,
+        ?string $keyword,
+        ?string $areaKeyword = null,
+    ): Collection {
         $term = $keyword !== null ? trim($keyword) : '';
+        $productNeedles = $term !== ''
+            ? $this->searchSynonyms->expandTerms($term, SearchSynonymGroup::TYPE_PRODUCT)
+            : [];
+        $hasProductFilter = $productNeedles !== [];
+        $areaNeedles = $this->resolveAreaSearchNeedles($areaKeyword);
+
         $ids = array_values(array_unique(array_map(intval(...), $followingUserIds)));
         $cap = min(max($limit, 1), 100);
 
         $posts = PricePost::query()
             ->with($this->baseWith())
             ->whereIn('user_id', $ids)
-            ->when($term !== '', function (Builder $query) use ($term) {
-                $like = '%'.strtolower($term).'%';
-                $query->whereHas('product', function (Builder $pq) use ($like) {
-                    $pq->where(function (Builder $inner) use ($like) {
-                        $inner->whereRaw('LOWER(products.name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(COALESCE(products.brand, \'\')) LIKE ?', [$like])
-                            ->orWhereHas('category', function (Builder $cq) use ($like) {
-                                $cq->whereRaw('LOWER(categories.name) LIKE ?', [$like]);
-                            });
-                    });
-                });
+            ->when($hasProductFilter, function (Builder $query) use ($productNeedles) {
+                $this->applyProductNeedlesToPricePostQuery($query, $productNeedles);
             })
             ->orderByDesc('created_at')
             ->limit($cap)
             ->get();
 
-        if ($term === '') {
+        if ($areaNeedles !== []) {
+            $posts = $posts->filter(function (PricePost $p) use ($areaNeedles) {
+                return $this->establishmentMatchesAreaNeedles($p->establishment, $areaNeedles);
+            })->values();
+        }
+
+        if (! $hasProductFilter) {
             return $posts->values();
         }
 

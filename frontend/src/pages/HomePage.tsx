@@ -22,6 +22,7 @@ export function HomePage() {
   const radiusKm = searchParams.get('radiusKm') ?? '50'
   const view = searchParams.get('view') ?? 'all'
   const productQ = searchParams.get('q') ?? ''
+  const areaLabelParam = searchParams.get('label') ?? ''
 
   const locParams = new URLSearchParams()
   if (lat) locParams.set('lat', lat)
@@ -46,6 +47,8 @@ export function HomePage() {
       if (view === 'following') p.set('following', '1')
       const qTrim = productQ.trim()
       if (qTrim) p.set('q', qTrim)
+      const areaLabel = areaLabelParam.trim()
+      if (areaLabel) p.set('label', areaLabel)
       const r = await apiFetch(`/api/v1/posts?${p.toString()}`)
       const j = (await r.json()) as { posts: PricePostView[] }
       if (!cancelled) setPosts(j.posts ?? [])
@@ -53,7 +56,7 @@ export function HomePage() {
     return () => {
       cancelled = true
     }
-  }, [lat, lng, radiusKm, view, user?.id, productQ, postsVersion])
+  }, [lat, lng, radiusKm, view, user?.id, productQ, areaLabelParam, postsVersion])
 
   useEffect(() => {
     if (view !== 'following' || !user?.id) {
