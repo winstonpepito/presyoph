@@ -60,7 +60,10 @@ export function SearchPage() {
         <div className="mt-8 space-y-8">
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Categories</h2>
-            <p className="mt-1 text-xs text-slate-500">Sorted by most recent price activity in the category, then name.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Name matches your search and <strong className="font-medium text-slate-600">admin product synonyms</strong>{' '}
+              (same as the home page). Sorted by most recent price activity, then name.
+            </p>
             <ul className="mt-2 space-y-1">
               {data.categories.map((c) => (
                 <li key={c.id}>
@@ -75,7 +78,9 @@ export function SearchPage() {
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Products</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Sorted by most recent price activity, then lowest reported price, then name.
+              Matches product name, brand, or category using the same{' '}
+              <strong className="font-medium text-slate-600">synonym groups</strong> as the home feed. Sorted by most
+              recent price activity, then lowest reported price, then name.
             </p>
             <ul className="mt-2 space-y-1">
               {data.products.map((p) => (

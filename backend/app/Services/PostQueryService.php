@@ -2,10 +2,10 @@
 
 namespace App\Services;
 
-use App\Models\PricePost;
-use App\Models\Product;
 use App\Models\Category;
 use App\Models\Establishment;
+use App\Models\PricePost;
+use App\Models\Product;
 use App\Models\SearchSynonymGroup;
 use App\Support\Geo;
 use App\Support\Pricing;
@@ -116,8 +116,9 @@ class PostQueryService
 
     /**
      * @param  list<string>  $needles
+     * @return list<string>
      */
-    private function applyProductNeedlesToPricePostQuery(Builder $query, array $needles): void
+    private function normalizeSearchNeedles(array $needles): array
     {
         $clean = [];
         foreach ($needles as $raw) {
@@ -126,28 +127,73 @@ class PostQueryService
                 $clean[] = $n;
             }
         }
+
+        return $clean;
+    }
+
+    /**
+     * Match products whose name, brand, or category name contains any needle (substring, case-insensitive).
+     * Used by the home feed and the /search catalog.
+     *
+     * @param  list<string>  $needles
+     */
+    private function applyProductNeedlesToProductBuilder(Builder $productQuery, array $needles): void
+    {
+        $clean = $this->normalizeSearchNeedles($needles);
         if ($clean === []) {
             return;
         }
 
-        $query->whereHas('product', function (Builder $pq) use ($clean) {
-            $pq->where(function (Builder $wrap) use ($clean) {
-                foreach ($clean as $i => $n) {
-                    $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $n).'%';
-                    $group = function (Builder $inner) use ($like) {
-                        $inner->whereRaw('LOWER(products.name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(COALESCE(products.brand, \'\')) LIKE ?', [$like])
-                            ->orWhereHas('category', function (Builder $cq) use ($like) {
-                                $cq->whereRaw('LOWER(categories.name) LIKE ?', [$like]);
-                            });
-                    };
-                    if ($i === 0) {
-                        $wrap->where($group);
-                    } else {
-                        $wrap->orWhere($group);
-                    }
+        $productQuery->where(function (Builder $wrap) use ($clean) {
+            foreach ($clean as $i => $n) {
+                $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $n).'%';
+                $group = function (Builder $inner) use ($like) {
+                    $inner->whereRaw('LOWER(products.name) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(COALESCE(products.brand, \'\')) LIKE ?', [$like])
+                        ->orWhereHas('category', function (Builder $cq) use ($like) {
+                            $cq->whereRaw('LOWER(categories.name) LIKE ?', [$like]);
+                        });
+                };
+                if ($i === 0) {
+                    $wrap->where($group);
+                } else {
+                    $wrap->orWhere($group);
                 }
-            });
+            }
+        });
+    }
+
+    /**
+     * Categories whose name matches any needle (same expansion as home product filter).
+     *
+     * @param  list<string>  $needles
+     */
+    private function applyCategoryNameNeedlesToQuery(Builder $categoryQuery, array $needles): void
+    {
+        $clean = $this->normalizeSearchNeedles($needles);
+        if ($clean === []) {
+            return;
+        }
+
+        $categoryQuery->where(function (Builder $wrap) use ($clean) {
+            foreach ($clean as $i => $n) {
+                $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $n).'%';
+                if ($i === 0) {
+                    $wrap->whereRaw('LOWER(categories.name) LIKE ?', [$like]);
+                } else {
+                    $wrap->orWhereRaw('LOWER(categories.name) LIKE ?', [$like]);
+                }
+            }
+        });
+    }
+
+    /**
+     * @param  list<string>  $needles
+     */
+    private function applyProductNeedlesToPricePostQuery(Builder $query, array $needles): void
+    {
+        $query->whereHas('product', function (Builder $pq) use ($needles) {
+            $this->applyProductNeedlesToProductBuilder($pq, $needles);
         });
     }
 
@@ -335,17 +381,19 @@ class PostQueryService
             return ['categories' => [], 'products' => [], 'establishments' => []];
         }
 
+        $productNeedles = $this->searchSynonyms->expandTerms($term, SearchSynonymGroup::TYPE_PRODUCT);
+
         $categories = Category::query()
-            ->whereRaw('LOWER(name) LIKE ?', ['%'.strtolower($term).'%'])
+            ->where(function (Builder $cq) use ($productNeedles) {
+                $this->applyCategoryNameNeedlesToQuery($cq, $productNeedles);
+            })
             ->limit(15)
             ->get();
 
-        $like = '%'.strtolower($term).'%';
         $products = Product::query()
             ->with('category')
-            ->where(function (Builder $q) use ($like) {
-                $q->whereRaw('LOWER(name) LIKE ?', [$like])
-                    ->orWhereRaw('LOWER(COALESCE(brand, \'\')) LIKE ?', [$like]);
+            ->where(function (Builder $pq) use ($productNeedles) {
+                $this->applyProductNeedlesToProductBuilder($pq, $productNeedles);
             })
             ->limit(20)
             ->get();
