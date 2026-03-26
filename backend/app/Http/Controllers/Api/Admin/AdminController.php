@@ -14,6 +14,7 @@ use App\Services\SettingsService;
 use App\Support\Slugify;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -93,9 +94,20 @@ class AdminController extends Controller
 
     public function createBanner(Request $request): \Illuminate\Http\JsonResponse
     {
+        // Multipart fields often arrive as "" (API group has no ConvertEmptyStringsToNull).
+        $request->merge([
+            'href' => $this->nullIfEmptyString($request->input('href')),
+            'alt' => $this->nullIfEmptyString($request->input('alt')),
+            'validFrom' => $this->nullIfEmptyString($request->input('validFrom')),
+            'validTo' => $this->nullIfEmptyString($request->input('validTo')),
+            'sortOrder' => $this->nullIfEmptyString($request->input('sortOrder')),
+        ]);
+
         $v = $request->validate([
             'slotKey' => ['required', 'string', 'max:64'],
-            'image' => ['required', 'file', 'image', 'max:5120', 'mimes:jpeg,jpg,png,gif,webp'],
+            // Use mimetypes (file content), not the `image` rule (extension-based guessExtension often fails for
+            // camera uploads with odd/missing filenames).
+            'image' => ['required', 'file', 'max:5120', 'mimetypes:image/jpeg,image/png,image/gif,image/webp'],
             'href' => ['nullable', 'string', 'max:2000'],
             'alt' => ['nullable', 'string', 'max:300'],
             'sortOrder' => ['nullable', 'integer'],
@@ -103,7 +115,21 @@ class AdminController extends Controller
             'validTo' => ['nullable', 'date'],
         ]);
 
-        $path = $request->file('image')->store('banner-uploads', 'public');
+        try {
+            $path = $request->file('image')->store('banner-uploads', 'public');
+            if ($path === false || $path === '') {
+                throw new \RuntimeException('Storage returned an empty path.');
+            }
+        } catch (\Throwable $e) {
+            Log::error('Banner image store failed', [
+                'message' => $e->getMessage(),
+                'exception' => $e::class,
+            ]);
+
+            return response()->json([
+                'message' => 'Could not save the image. Check PHP upload limits (upload_max_filesize, post_max_size), web server body size, and storage/app/public permissions.',
+            ], 500);
+        }
 
         BannerAd::query()->create([
             'slot_key' => $v['slotKey'],
@@ -116,6 +142,11 @@ class AdminController extends Controller
         ]);
 
         return response()->json(['ok' => true]);
+    }
+
+    private function nullIfEmptyString(mixed $value): mixed
+    {
+        return $value === '' ? null : $value;
     }
 
     public function toggleBanner(Request $request, string $id): \Illuminate\Http\JsonResponse

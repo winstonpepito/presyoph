@@ -89,15 +89,23 @@ export function AdminPage() {
     }
     const r = await apiFetch('/api/admin/banners', { method: 'POST', body: fd })
     if (!r.ok) {
+      const ct = r.headers.get('content-type') ?? ''
       try {
-        const j = (await r.json()) as { message?: string; errors?: Record<string, string[]> }
-        const msg =
-          j.message ??
-          (j.errors ? Object.values(j.errors).flat().join(' ') : null) ??
-          'Upload failed. Check file type (JPEG, PNG, GIF, WebP) and size (max 5 MB).'
-        alert(msg)
+        if (ct.includes('application/json')) {
+          const j = (await r.json()) as { message?: string; errors?: Record<string, string[]> }
+          const msg =
+            j.message ??
+            (j.errors ? Object.values(j.errors).flat().join(' ') : null) ??
+            `Upload failed (HTTP ${r.status}). Check file type (JPEG, PNG, GIF, WebP) and size (max 5 MB), or server upload limits.`
+          alert(msg)
+        } else {
+          const text = (await r.text()).slice(0, 500)
+          alert(
+            `Upload failed (HTTP ${r.status}). ${text || 'Non-JSON response — often means the file exceeded PHP post_max_size / upload_max_filesize or the reverse-proxy body limit.'}`,
+          )
+        }
       } catch {
-        alert('Upload failed.')
+        alert(`Upload failed (HTTP ${r.status}).`)
       }
       return
     }

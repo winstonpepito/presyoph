@@ -55,20 +55,28 @@ export function LocationBar() {
       <div className="min-w-0 flex-1">
         <label className="text-xs font-medium text-slate-500">Area label</label>
         <p className="mt-0.5 text-[11px] text-slate-400">
-          Optional. With a map pin set, narrows the feed to stores/locations whose text matches this label (and admin
-          synonyms).
+          Optional. Narrows the feed to establishments whose name, city, barangay, or address contains this text (plus
+          admin area synonyms). Map pin + radius further limits by distance.
         </p>
         <input
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
           placeholder="e.g. Carbon"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            ;(e.target as HTMLInputElement).blur()
+          }}
           onBlur={() => {
-            if (!lat || !lng) return
+            const trimmed = label.trim()
+            if (trimmed !== label) setLabel(trimmed)
             const p = new URLSearchParams(spString)
-            if (label) p.set('label', label)
+            if (trimmed) p.set('label', trimmed)
             else p.delete('label')
-            navigate({ search: p.toString() }, { replace: true })
+            const next = p.toString()
+            if (next === spString) return
+            startTransition(() => navigate({ search: next }, { replace: true }))
           }}
         />
       </div>
@@ -107,12 +115,18 @@ export function LocationBar() {
           Clear
         </button>
       </div>
-      {lat && lng && (
+      {(lat && lng) || searchParams.get('label') ? (
         <p className="w-full text-xs text-slate-500">
-          Active: {Number(lat).toFixed(4)}, {Number(lng).toFixed(4)}
-          {searchParams.get('label') ? ` · ${searchParams.get('label')}` : ''}
+          {lat && lng ? (
+            <>
+              Active pin: {Number(lat).toFixed(4)}, {Number(lng).toFixed(4)}
+            </>
+          ) : (
+            <>No map pin (area text filter only)</>
+          )}
+          {searchParams.get('label') ? ` · Area: ${searchParams.get('label')}` : ''}
         </p>
-      )}
+      ) : null}
     </div>
   )
 }

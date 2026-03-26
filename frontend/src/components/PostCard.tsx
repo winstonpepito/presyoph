@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EditPricePostModal } from './EditPricePostModal'
+import { PostLocationMapModal } from './PostLocationMapModal'
 import { apiFetch } from '../lib/api'
+import { hasUsableMapCoords } from '../lib/openStreetMapEmbed'
 import type { PricePostView } from '../types/post'
 import { formatEstablishmentAddress } from '../lib/formatEstablishmentAddress'
 import { formatPerUnit } from '../lib/formatUnit'
@@ -27,11 +29,13 @@ export function PostCard({
   onMutate?: () => void
 }) {
   const [editOpen, setEditOpen] = useState(false)
+  const [mapOpen, setMapOpen] = useState(false)
   const [delPending, setDelPending] = useState(false)
   const canEdit = post.canEdit ?? false
   const canDelete = post.canDelete ?? false
   const perUnit = formatPerUnit(post.unit, post.unitQuantity)
   const establishmentAddr = formatEstablishmentAddress(post.establishment)
+  const showMapBtn = hasUsableMapCoords(post.latitude, post.longitude)
 
   async function handleDelete() {
     if (!confirm('Delete this price post permanently?')) return
@@ -71,7 +75,24 @@ export function PostCard({
             )}
           </p>
         </div>
-        <div className="text-right">
+        <div className="flex shrink-0 flex-col items-end gap-1 text-right">
+          {showMapBtn ? (
+            <button
+              type="button"
+              onClick={() => setMapOpen(true)}
+              className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-600"
+              aria-label="View price location on map"
+              title="Map"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <path
+                  d="M12 21s7-4.35 7-10a7 7 0 1 0-14 0c0 5.65 7 10 7 10z"
+                  strokeLinejoin="round"
+                />
+                <circle cx="12" cy="11" r="2.5" />
+              </svg>
+            </button>
+          ) : null}
           <p className="text-lg font-bold text-emerald-700">{priceLabel(post)}</p>
           {perUnit ? <p className="text-xs font-medium text-slate-500">{perUnit}</p> : null}
         </div>
@@ -119,6 +140,15 @@ export function PostCard({
         </div>
       </div>
     </article>
+    {mapOpen ? (
+      <PostLocationMapModal
+        open={mapOpen}
+        onClose={() => setMapOpen(false)}
+        latitude={post.latitude}
+        longitude={post.longitude}
+        title={post.establishment.name}
+      />
+    ) : null}
     {editOpen ? (
       <EditPricePostModal
         post={post}
