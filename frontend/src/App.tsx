@@ -10,6 +10,7 @@ import { PostPage } from './pages/PostPage'
 import { ProductPage } from './pages/ProductPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { SearchPage } from './pages/SearchPage'
+import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { SignInPage } from './pages/SignInPage'
 
@@ -33,6 +34,7 @@ function AppRoutes() {
         <Route path="/post" element={<PostPage />} />
         <Route path="/auth/signin" element={<SignInPage />} />
         <Route path="/auth/register" element={<RegisterPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/profile/:id" element={<ProfilePage />} />
         <Route path="/products/:slug" element={<ProductPage />} />
         <Route path="/categories/:slug" element={<CategoryPage />} />

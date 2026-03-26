@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { redirectToGoogleSignIn } from '../lib/googleSignIn'
 import { useAuth } from '../context/AuthContext'
 import type { SessionUser } from '../context/AuthContext'
 
@@ -17,6 +18,7 @@ export function SignInForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOidc
   const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [pending, setPending] = useState(false)
+  const urlError = searchParams.get('error')
 
   async function onCredentials(e: React.FormEvent) {
     e.preventDefault()
@@ -45,6 +47,9 @@ export function SignInForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOidc
   return (
     <div className="space-y-6">
       <form onSubmit={(e) => void onCredentials(e)} className="space-y-4">
+        {urlError ? (
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{urlError}</p>
+        ) : null}
         {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{err}</p>}
         <div>
           <label className="text-sm font-medium text-slate-700">Email</label>
@@ -98,11 +103,9 @@ export function SignInForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOidc
           <button
             type="button"
             className="rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
-            onClick={() =>
-              alert('Wire Google OAuth in Laravel (Socialite) and point this button to your authorize URL.')
-            }
+            onClick={() => redirectToGoogleSignIn(callbackUrl)}
           >
-            Google
+            Continue with Google
           </button>
         )}
         {hasOidc && (
@@ -119,8 +122,10 @@ export function SignInForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOidc
       </div>
       {!hasGoogle && !hasOidc && (
         <p className="text-center text-xs text-slate-500">
-          Add AUTH_GOOGLE_* or AUTH_OIDC_* in the Laravel <code className="rounded bg-slate-100 px-1">.env</code> to
-          surface SSO buttons (Laravel Socialite / OIDC still needs routes).
+          Add <code className="rounded bg-slate-100 px-1">AUTH_GOOGLE_ID</code> and{' '}
+          <code className="rounded bg-slate-100 px-1">AUTH_GOOGLE_SECRET</code> in Laravel{' '}
+          <code className="rounded bg-slate-100 px-1">.env</code> and set the Google OAuth redirect URI to{' '}
+          <code className="rounded bg-slate-100 px-1">{'{APP_URL}'}/auth/google/callback</code>.
         </p>
       )}
     </div>

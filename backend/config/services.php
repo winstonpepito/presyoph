@@ -38,6 +38,7 @@ return [
     'google' => [
         'client_id' => env('AUTH_GOOGLE_ID'),
         'client_secret' => env('AUTH_GOOGLE_SECRET'),
+        'redirect' => env('AUTH_GOOGLE_REDIRECT_URI', rtrim((string) env('APP_URL', 'http://localhost'), '/').'/auth/google/callback'),
     ],
 
     'oidc' => [

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\BannerService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -14,7 +15,7 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    public function providers(): \Illuminate\Http\JsonResponse
+    public function providers(): JsonResponse
     {
         return response()->json([
             'google' => (bool) (config('services.google.client_id') && config('services.google.client_secret')),
@@ -22,7 +23,7 @@ class AuthController extends Controller
         ]);
     }
 
-    public function register(Request $request): \Illuminate\Http\JsonResponse
+    public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -45,7 +46,7 @@ class AuthController extends Controller
         ], 201);
     }
 
-    public function login(Request $request): \Illuminate\Http\JsonResponse
+    public function login(Request $request): JsonResponse
     {
         $data = $request->validate([
             'email' => ['required', 'email'],
@@ -53,9 +54,13 @@ class AuthController extends Controller
         ]);
 
         $user = User::query()->where('email', $data['email'])->first();
-        if (! $user || ! Hash::check($data['password'], $user->password)) {
+        if (! $user || $user->password === null || ! Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Invalid email or password.'],
+                'email' => [
+                    $user && $user->password === null
+                        ? 'This account uses Google sign-in.'
+                        : 'Invalid email or password.',
+                ],
             ]);
         }
 
@@ -68,19 +73,19 @@ class AuthController extends Controller
         ]);
     }
 
-    public function logout(Request $request): \Illuminate\Http\JsonResponse
+    public function logout(Request $request): JsonResponse
     {
         $request->user()?->currentAccessToken()?->delete();
 
         return response()->json(['ok' => true]);
     }
 
-    public function user(Request $request): \Illuminate\Http\JsonResponse
+    public function user(Request $request): JsonResponse
     {
         return response()->json($this->userPayload($request->user(), $request));
     }
 
-    public function updateProfile(Request $request): \Illuminate\Http\JsonResponse
+    public function updateProfile(Request $request): JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
@@ -96,10 +101,12 @@ class AuthController extends Controller
         ]);
 
         if (! empty($data['password'])) {
-            if (! Hash::check($data['current_password'] ?? '', $user->password)) {
-                throw ValidationException::withMessages([
-                    'current_password' => ['The current password is incorrect.'],
-                ]);
+            if ($user->password !== null && $user->password !== '') {
+                if (! Hash::check($data['current_password'] ?? '', $user->password)) {
+                    throw ValidationException::withMessages([
+                        'current_password' => ['The current password is incorrect.'],
+                    ]);
+                }
             }
             $user->password = $data['password'];
         }

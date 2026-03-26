@@ -11,6 +11,11 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      // Google OAuth (web routes) when VITE_API_URL is unset — same origin as Vite in dev
+      '/auth': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       // Laravel public disk (banner uploads, avatars) when VITE_API_URL is unset
       '/storage': {
         target: 'http://localhost:8000',
