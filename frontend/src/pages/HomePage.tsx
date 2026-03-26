@@ -171,14 +171,14 @@ export function HomePage() {
       >
         <div className="min-w-0 flex-1">
           <label htmlFor="home-product-q" className="text-xs font-medium text-slate-500">
-            Filter by product (keyword)
+            Filter by product, brand, or category
           </label>
           <input
             id="home-product-q"
             name="productQ"
             key={productQ}
             defaultValue={productQ}
-            placeholder="Product name or brand…"
+            placeholder="Product, brand, or category…"
             className="mt-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
             autoComplete="off"
           />

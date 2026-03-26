@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
-import QRCode from 'react-qr-code'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import QRCodeLib from 'qrcode'
 
 type Props = {
   isOpen: boolean
@@ -9,6 +10,8 @@ type Props = {
 }
 
 export function ProfileQrModal({ isOpen, onClose, profileUrl, displayName }: Props) {
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+
   useEffect(() => {
     if (!isOpen) return
     const onKey = (e: KeyboardEvent) => {
@@ -18,9 +21,36 @@ export function ProfileQrModal({ isOpen, onClose, profileUrl, displayName }: Pro
     return () => document.removeEventListener('keydown', onKey)
   }, [isOpen, onClose])
 
+  useEffect(() => {
+    if (!isOpen) {
+      setQrDataUrl(null)
+      return
+    }
+    const url = profileUrl.trim()
+    if (!url) {
+      setQrDataUrl(null)
+      return
+    }
+    let cancelled = false
+    void QRCodeLib.toDataURL(url, {
+      width: 200,
+      margin: 2,
+      color: { dark: '#0f172a', light: '#ffffff' },
+    })
+      .then((dataUrl) => {
+        if (!cancelled) setQrDataUrl(dataUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, profileUrl])
+
   if (!isOpen) return null
 
-  return (
+  const modal = (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/50 p-4"
       role="dialog"
@@ -45,16 +75,23 @@ export function ProfileQrModal({ isOpen, onClose, profileUrl, displayName }: Pro
           </button>
         </div>
         <p className="mt-1 text-sm text-slate-600">{displayName}</p>
-        <div className="mt-6 flex justify-center rounded-xl bg-white p-4 ring-1 ring-slate-200">
-          <QRCode
-            value={profileUrl}
-            size={200}
-            level="M"
-            className="h-auto max-w-full"
-          />
+        <div className="mt-6 flex min-h-[200px] items-center justify-center rounded-xl bg-white p-4 ring-1 ring-slate-200">
+          {qrDataUrl ? (
+            <img
+              src={qrDataUrl}
+              alt=""
+              width={200}
+              height={200}
+              className="h-[200px] w-[200px] max-w-full"
+            />
+          ) : (
+            <p className="text-sm text-slate-500">{profileUrl.trim() ? 'Generating QR…' : 'No profile link'}</p>
+          )}
         </div>
         <p className="mt-4 break-all text-center text-xs text-slate-500">{profileUrl}</p>
       </div>
     </div>
   )
+
+  return createPortal(modal, document.body)
 }

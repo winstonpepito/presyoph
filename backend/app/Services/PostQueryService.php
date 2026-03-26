@@ -52,8 +52,11 @@ class PostQueryService
                 $like = '%'.strtolower($term).'%';
                 $query->whereHas('product', function (Builder $pq) use ($like) {
                     $pq->where(function (Builder $inner) use ($like) {
-                        $inner->whereRaw('LOWER(name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(COALESCE(brand, \'\')) LIKE ?', [$like]);
+                        $inner->whereRaw('LOWER(products.name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(COALESCE(products.brand, \'\')) LIKE ?', [$like])
+                            ->orWhereHas('category', function (Builder $cq) use ($like) {
+                                $cq->whereRaw('LOWER(categories.name) LIKE ?', [$like]);
+                            });
                     });
                 });
             })
@@ -95,15 +98,18 @@ class PostQueryService
         $ids = array_values(array_unique(array_map(intval(...), $followingUserIds)));
         $cap = min(max($limit, 1), 100);
 
-        return PricePost::query()
+        $posts = PricePost::query()
             ->with($this->baseWith())
             ->whereIn('user_id', $ids)
             ->when($term !== '', function (Builder $query) use ($term) {
                 $like = '%'.strtolower($term).'%';
                 $query->whereHas('product', function (Builder $pq) use ($like) {
                     $pq->where(function (Builder $inner) use ($like) {
-                        $inner->whereRaw('LOWER(name) LIKE ?', [$like])
-                            ->orWhereRaw('LOWER(COALESCE(brand, \'\')) LIKE ?', [$like]);
+                        $inner->whereRaw('LOWER(products.name) LIKE ?', [$like])
+                            ->orWhereRaw('LOWER(COALESCE(products.brand, \'\')) LIKE ?', [$like])
+                            ->orWhereHas('category', function (Builder $cq) use ($like) {
+                                $cq->whereRaw('LOWER(categories.name) LIKE ?', [$like]);
+                            });
                     });
                 });
             })
