@@ -401,10 +401,13 @@ class PostQueryService
         $productIds = $products->pluck('id')->all();
         $cheapestByProductId = [];
         $latestTsByProductId = [];
+        /** @var array<int, PricePost|null> */
+        $bestPostByProductId = [];
         if ($productIds !== []) {
             $priceRows = PricePost::query()
+                ->with('establishment')
                 ->whereIn('product_id', $productIds)
-                ->get(['product_id', 'price_exact', 'price_min', 'price_max', 'created_at']);
+                ->get(['product_id', 'price_exact', 'price_min', 'price_max', 'created_at', 'establishment_id']);
             foreach ($priceRows->groupBy('product_id') as $pid => $rows) {
                 $pidInt = (int) $pid;
                 $cheapestByProductId[$pidInt] = $rows
@@ -417,6 +420,18 @@ class PostQueryService
                 $latestTsByProductId[$pidInt] = $rows
                     ->map(fn (PricePost $row) => $row->created_at?->timestamp ?? 0)
                     ->max() ?? 0;
+                $bestPostByProductId[$pidInt] = $rows
+                    ->sortBy(function (PricePost $post) {
+                        return [
+                            Pricing::comparablePrice(
+                                $post->price_exact !== null ? (string) $post->price_exact : null,
+                                $post->price_min !== null ? (string) $post->price_min : null,
+                                $post->price_max !== null ? (string) $post->price_max : null,
+                            ),
+                            -($post->created_at?->timestamp ?? 0),
+                        ];
+                    })
+                    ->first();
             }
         }
         $products = $products->sortBy(function (Product $p) use ($cheapestByProductId, $latestTsByProductId) {
@@ -478,21 +493,37 @@ class PostQueryService
                 'name' => $c->name,
                 'slug' => $c->slug,
             ])->all(),
-            'products' => $products->map(fn (Product $p) => [
-                'id' => (string) $p->id,
-                'name' => $p->name,
-                'brand' => $p->brand !== null && $p->brand !== '' ? $p->brand : null,
-                'slug' => $p->slug,
-                'unit' => $p->unit,
-                'unitQuantity' => $p->unit_quantity !== null && $p->unit_quantity !== ''
-                    ? (string) $p->unit_quantity
-                    : null,
-                'category' => $p->category ? [
-                    'id' => (string) $p->category->id,
-                    'name' => $p->category->name,
-                    'slug' => $p->category->slug,
-                ] : null,
-            ])->all(),
+            'products' => $products->map(function (Product $p) use ($bestPostByProductId) {
+                $rep = $bestPostByProductId[$p->id] ?? null;
+                $est = $rep?->establishment;
+
+                return [
+                    'id' => (string) $p->id,
+                    'name' => $p->name,
+                    'brand' => $p->brand !== null && $p->brand !== '' ? $p->brand : null,
+                    'slug' => $p->slug,
+                    'unit' => $p->unit,
+                    'unitQuantity' => $p->unit_quantity !== null && $p->unit_quantity !== ''
+                        ? (string) $p->unit_quantity
+                        : null,
+                    'category' => $p->category ? [
+                        'id' => (string) $p->category->id,
+                        'name' => $p->category->name,
+                        'slug' => $p->category->slug,
+                    ] : null,
+                    'priceExact' => $rep !== null && $rep->price_exact !== null ? (string) $rep->price_exact : null,
+                    'priceMin' => $rep !== null && $rep->price_min !== null ? (string) $rep->price_min : null,
+                    'priceMax' => $rep !== null && $rep->price_max !== null ? (string) $rep->price_max : null,
+                    'establishment' => $est !== null ? [
+                        'id' => (string) $est->id,
+                        'name' => $est->name,
+                        'slug' => $est->slug,
+                        'addressLine' => $est->address_line,
+                        'barangay' => $est->barangay,
+                        'city' => $est->city,
+                    ] : null,
+                ];
+            })->all(),
             'establishments' => $establishments->map(fn (Establishment $e) => [
                 'id' => (string) $e->id,
                 'name' => $e->name,

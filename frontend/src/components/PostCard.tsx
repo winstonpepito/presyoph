@@ -7,17 +7,7 @@ import { hasUsableMapCoords } from '../lib/openStreetMapEmbed'
 import type { PricePostView } from '../types/post'
 import { formatEstablishmentAddress } from '../lib/formatEstablishmentAddress'
 import { formatPerUnit } from '../lib/formatUnit'
-import { formatPrice } from '../lib/pricing'
-
-function priceLabel(p: PricePostView): string {
-  if (p.priceExact != null) {
-    return formatPrice(Number(p.priceExact))
-  }
-  if (p.priceMin != null && p.priceMax != null) {
-    return `${formatPrice(Number(p.priceMin))} – ${formatPrice(Number(p.priceMax))}`
-  }
-  return '—'
-}
+import { formatPricePostLabel } from '../lib/pricing'
 
 export function PostCard({
   post,
@@ -35,6 +25,7 @@ export function PostCard({
   const canDelete = post.canDelete ?? false
   const perUnit = formatPerUnit(post.unit, post.unitQuantity)
   const establishmentAddr = formatEstablishmentAddress(post.establishment)
+  const priceText = formatPricePostLabel(post)
   const showMapBtn = hasUsableMapCoords(post.latitude, post.longitude)
 
   async function handleDelete() {
@@ -93,7 +84,7 @@ export function PostCard({
               </svg>
             </button>
           ) : null}
-          <p className="text-lg font-bold text-emerald-700">{priceLabel(post)}</p>
+          <p className="text-lg font-bold text-emerald-700">{priceText}</p>
           {perUnit ? <p className="text-xs font-medium text-slate-500">{perUnit}</p> : null}
         </div>
       </div>
