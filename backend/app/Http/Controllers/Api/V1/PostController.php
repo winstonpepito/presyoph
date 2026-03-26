@@ -13,6 +13,7 @@ use App\Services\PostQueryService;
 use App\Services\SettingsService;
 use App\Models\ProductUnit;
 use App\Support\Slugify;
+use App\Support\TextCase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -150,9 +151,12 @@ class PostController extends Controller
             : '1';
 
         $brandTrim = isset($validated['productBrand']) ? trim((string) $validated['productBrand']) : '';
-        $brand = $brandTrim !== '' ? $brandTrim : null;
+        $brand = $brandTrim !== '' ? TextCase::sentenceCase($brandTrim) : null;
 
-        $baseSlug = Slugify::slugify($validated['productName']);
+        $productName = TextCase::sentenceCase($validated['productName']);
+        $establishmentName = TextCase::sentenceCase($validated['establishmentName']);
+
+        $baseSlug = Slugify::slugify($productName);
         if ($brand !== null) {
             $brandSlug = Slugify::slugify($brand);
             if ($brandSlug !== '') {
@@ -164,7 +168,7 @@ class PostController extends Controller
         $product = Product::query()->updateOrCreate(
             ['slug' => $slug],
             [
-                'name' => trim($validated['productName']),
+                'name' => $productName,
                 'brand' => $brand,
                 'category_id' => $categoryId,
                 'unit' => $unit,
@@ -173,14 +177,14 @@ class PostController extends Controller
         );
 
         $estSlug = Slugify::uniqueEstablishmentSlug(
-            Slugify::slugify($validated['establishmentName']),
+            Slugify::slugify($establishmentName),
             fn (string $s) => Establishment::query()->where('slug', $s)->exists(),
         );
 
         $establishment = Establishment::query()->updateOrCreate(
             ['slug' => $estSlug],
             [
-                'name' => trim($validated['establishmentName']),
+                'name' => $establishmentName,
                 'address_line' => isset($validated['establishmentAddress']) ? trim((string) $validated['establishmentAddress']) ?: null : null,
                 'barangay' => isset($validated['establishmentBarangay']) ? trim((string) $validated['establishmentBarangay']) ?: null : null,
                 'city' => isset($validated['establishmentCity']) ? trim((string) $validated['establishmentCity']) ?: null : null,
@@ -283,10 +287,13 @@ class PostController extends Controller
             : '1';
 
         $brandTrim = isset($validated['productBrand']) ? trim((string) $validated['productBrand']) : '';
-        $brand = $brandTrim !== '' ? $brandTrim : null;
+        $brand = $brandTrim !== '' ? TextCase::sentenceCase($brandTrim) : null;
+
+        $productName = TextCase::sentenceCase($validated['productName']);
+        $establishmentName = TextCase::sentenceCase($validated['establishmentName']);
 
         $product = $post->product;
-        $baseSlug = Slugify::slugify($validated['productName']);
+        $baseSlug = Slugify::slugify($productName);
         if ($brand !== null) {
             $brandSlug = Slugify::slugify($brand);
             if ($brandSlug !== '') {
@@ -298,7 +305,7 @@ class PostController extends Controller
 
         $product->update([
             'slug' => $slug,
-            'name' => trim($validated['productName']),
+            'name' => $productName,
             'brand' => $brand,
             'category_id' => $categoryId,
             'unit' => $unit,
@@ -308,13 +315,13 @@ class PostController extends Controller
         $establishment = $post->establishment;
         $eid = $establishment->id;
         $estSlug = Slugify::uniqueEstablishmentSlug(
-            Slugify::slugify($validated['establishmentName']),
+            Slugify::slugify($establishmentName),
             fn (string $s) => Establishment::query()->where('slug', $s)->where('id', '!=', $eid)->exists(),
         );
 
         $establishment->update([
             'slug' => $estSlug,
-            'name' => trim($validated['establishmentName']),
+            'name' => $establishmentName,
             'address_line' => isset($validated['establishmentAddress']) ? trim((string) $validated['establishmentAddress']) ?: null : null,
             'barangay' => isset($validated['establishmentBarangay']) ? trim((string) $validated['establishmentBarangay']) ?: null : null,
             'city' => isset($validated['establishmentCity']) ? trim((string) $validated['establishmentCity']) ?: null : null,

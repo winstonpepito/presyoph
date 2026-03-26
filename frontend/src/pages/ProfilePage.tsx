@@ -1,10 +1,11 @@
 import { Link, useParams } from 'react-router-dom'
 import { FollowButton } from '../components/FollowButton'
+import { ProfileQrModal } from '../components/ProfileQrModal'
 import { PostCard } from '../components/PostCard'
 import { useAuth, type SessionUser } from '../context/AuthContext'
 import { apiFetch } from '../lib/api'
 import type { PricePostView } from '../types/post'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 type ProfilePayload = {
   user: { id: string; name: string | null; image: string | null; externalImageUrl?: string | null }
@@ -37,6 +38,14 @@ export function ProfilePage() {
   const initialExternalUrlRef = useRef('')
   const [avatarInputKey, setAvatarInputKey] = useState(0)
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null)
+  const [qrOpen, setQrOpen] = useState(false)
+
+  const profileQrUrl = useMemo(() => {
+    if (!id) return ''
+    const base = import.meta.env.BASE_URL
+    const prefix = base === '/' ? '' : base.replace(/\/$/, '')
+    return `${window.location.origin}${prefix}/profile/${encodeURIComponent(id)}`
+  }, [id])
 
   useEffect(() => {
     let cancelled = false
@@ -198,6 +207,13 @@ export function ProfilePage() {
               {editing ? 'Cancel' : 'Edit profile'}
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setQrOpen(true)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            Show QR
+          </button>
           <FollowButton
             targetUserId={data.user.id}
             initialFollowing={data.isFollowing}
@@ -423,6 +439,13 @@ export function ProfilePage() {
           ← Home
         </Link>
       </p>
+
+      <ProfileQrModal
+        isOpen={qrOpen}
+        onClose={() => setQrOpen(false)}
+        profileUrl={profileQrUrl}
+        displayName={data.user.name ?? 'Member'}
+      />
     </div>
   )
 }

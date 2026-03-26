@@ -56,7 +56,7 @@ export function LocationBar() {
         <label className="text-xs font-medium text-slate-500">Area label</label>
         <input
           className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-          placeholder="e.g. Downtown"
+          placeholder="e.g. Carbon"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           onBlur={() => {
