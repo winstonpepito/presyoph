@@ -151,10 +151,10 @@ class PostController extends Controller
             : '1';
 
         $brandTrim = isset($validated['productBrand']) ? trim((string) $validated['productBrand']) : '';
-        $brand = $brandTrim !== '' ? TextCase::sentenceCase($brandTrim) : null;
+        $brand = $brandTrim !== '' ? TextCase::titleCase($brandTrim) : null;
 
-        $productName = TextCase::sentenceCase($validated['productName']);
-        $establishmentName = TextCase::sentenceCase($validated['establishmentName']);
+        $productName = TextCase::titleCase($validated['productName']);
+        $establishmentName = TextCase::titleCase($validated['establishmentName']);
 
         $baseSlug = Slugify::slugify($productName);
         if ($brand !== null) {
@@ -287,10 +287,10 @@ class PostController extends Controller
             : '1';
 
         $brandTrim = isset($validated['productBrand']) ? trim((string) $validated['productBrand']) : '';
-        $brand = $brandTrim !== '' ? TextCase::sentenceCase($brandTrim) : null;
+        $brand = $brandTrim !== '' ? TextCase::titleCase($brandTrim) : null;
 
-        $productName = TextCase::sentenceCase($validated['productName']);
-        $establishmentName = TextCase::sentenceCase($validated['establishmentName']);
+        $productName = TextCase::titleCase($validated['productName']);
+        $establishmentName = TextCase::titleCase($validated['establishmentName']);
 
         $product = $post->product;
         $baseSlug = Slugify::slugify($productName);
