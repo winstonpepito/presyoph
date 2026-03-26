@@ -89,6 +89,12 @@ export function AdminPage() {
     }
     const r = await apiFetch('/api/admin/banners', { method: 'POST', body: fd })
     if (!r.ok) {
+      if (r.status === 413) {
+        alert(
+          'This file is larger than your server allows (HTTP 413 Request Entity Too Large). On nginx, add or raise client_max_body_size (e.g. 12M) in the server block for this site, reload nginx, and ensure PHP upload_max_filesize and post_max_size are at least that large. See deploy/nginx-upload-limits.conf in the project repo.',
+        )
+        return
+      }
       const ct = r.headers.get('content-type') ?? ''
       try {
         if (ct.includes('application/json')) {
@@ -668,8 +674,10 @@ export function AdminPage() {
         <p className="mt-1 text-sm text-slate-600">
           Banners appear <strong>above “Prices near you”</strong> on the home page, full width of the main column.
           <strong>Upload</strong> an image (JPEG, PNG, GIF, or WebP, max 5 MB) and set an optional link for each slide.
-          On the server, run <code className="rounded bg-slate-100 px-1 text-xs">php artisan storage:link</code> once so
-          images are publicly reachable. <strong>Static</strong> shows only the first active ad (by sort order).{' '}
+          If uploads fail with <strong>HTTP 413</strong>, nginx (or your proxy) must allow a large enough body — see{' '}
+          <code className="rounded bg-slate-100 px-1 text-xs">deploy/nginx-upload-limits.conf</code>. On the server, run{' '}
+          <code className="rounded bg-slate-100 px-1 text-xs">php artisan storage:link</code> once so images are publicly
+          reachable. <strong>Static</strong> shows only the first active ad (by sort order).{' '}
           <strong>Rotate</strong> shows all active ads in a carousel with arrows and dots. Optional start/end dates
           apply to each ad.
         </p>
