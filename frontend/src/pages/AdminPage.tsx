@@ -13,10 +13,13 @@ type AdminState = {
   searchSynonymGroups: SearchSynonymGroupRow[]
 }
 
+type LocationsSynonymsTab = 'cities' | 'synonyms'
+
 export function AdminPage() {
   const [state, setState] = useState<AdminState | null>(null)
   const [locations, setLocations] = useState<LocationsPayload | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [locationsSynonymsTab, setLocationsSynonymsTab] = useState<LocationsSynonymsTab>('cities')
 
   async function load() {
     const r = await apiFetch('/api/admin/state')
@@ -416,168 +419,223 @@ export function AdminPage() {
       </section>
 
       <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Home search synonyms</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Locations &amp; home search</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Group alternate spellings or names for the same product or place. On the home page, the{' '}
-          <strong>product filter</strong> matches product name, brand, and category against any term in a{' '}
-          <strong>product</strong> group when the visitor’s search matches one of those terms. The <strong>area label</strong>{' '}
-          (with location set) filters posts to establishments whose name, city, barangay, or address contains any term in
-          an <strong>area</strong> group when the label matches a term. The label &quot;Current location&quot; is ignored for
-          text matching. Synonyms are case-insensitive.
+          Switch between city/barangay setup and synonym groups for the home page product and area filters.
         </p>
-
-        <ul className="mt-4 space-y-4">
-          {state.searchSynonymGroups.map((g) => (
-            <li key={g.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                {g.type === 'product' ? 'Product' : 'Area'}
-              </p>
-              <form
-                className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  const fd = new FormData(e.currentTarget)
-                  const raw = String(fd.get('terms') ?? '')
-                  void saveSearchSynonymGroup(g.id, raw)
-                }}
-              >
-                <div className="min-w-0 flex-1">
-                  <label className="text-xs text-slate-500">Terms (comma or newline separated)</label>
-                  <textarea
-                    name="terms"
-                    key={`${g.id}-${g.terms.join('|')}`}
-                    defaultValue={g.terms.join(', ')}
-                    rows={2}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void deleteSearchSynonymGroup(g.id)}
-                  className="rounded-lg px-3 py-2 text-sm text-red-600 hover:underline"
-                >
-                  Delete
-                </button>
-              </form>
-            </li>
-          ))}
-        </ul>
-
-        <form
-          className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-6"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const fd = new FormData(e.currentTarget)
-            const type = fd.get('synType') === 'area' ? 'area' : 'product'
-            const raw = String(fd.get('synTerms') ?? '')
-            void addSearchSynonymGroup(type, raw)
-            e.currentTarget.reset()
-          }}
+        <div
+          className="mt-4 flex flex-wrap gap-1 border-b border-slate-200"
+          role="tablist"
+          aria-label="Cities and search synonyms"
         >
-          <div>
-            <label className="text-xs text-slate-500">New group type</label>
-            <select
-              name="synType"
-              className="mt-1 w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:w-auto"
-            >
-              <option value="product">Product (name / brand / category filter)</option>
-              <option value="area">Area (establishment location text)</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-500">Terms</label>
-            <textarea
-              name="synTerms"
-              required
-              rows={3}
-              placeholder="e.g. bangus, bangos, milkfish"
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
           <button
-            type="submit"
-            className="w-fit rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            type="button"
+            role="tab"
+            id="admin-tab-cities"
+            aria-selected={locationsSynonymsTab === 'cities'}
+            aria-controls="admin-panel-cities"
+            tabIndex={locationsSynonymsTab === 'cities' ? 0 : -1}
+            onClick={() => setLocationsSynonymsTab('cities')}
+            className={`rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+              locationsSynonymsTab === 'cities'
+                ? 'border border-b-0 border-slate-200 bg-white text-slate-900'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+            }`}
           >
-            Add synonym group
+            Cities &amp; barangays
           </button>
-        </form>
-      </section>
+          <button
+            type="button"
+            role="tab"
+            id="admin-tab-synonyms"
+            aria-selected={locationsSynonymsTab === 'synonyms'}
+            aria-controls="admin-panel-synonyms"
+            tabIndex={locationsSynonymsTab === 'synonyms' ? 0 : -1}
+            onClick={() => setLocationsSynonymsTab('synonyms')}
+            className={`rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+              locationsSynonymsTab === 'synonyms'
+                ? 'border border-b-0 border-slate-200 bg-white text-slate-900'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+            }`}
+          >
+            Home search synonyms
+          </button>
+        </div>
 
-      <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Cities &amp; barangays</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Barangays are grouped under each city. Users pick a city and barangay when posting a price; the barangay list
-          updates when the city changes. Cebu City is the default city for new posts. GPS can auto-select a city when
-          the user is in the Cebu metro area.
-        </p>
-        {!locations ? (
-          <p className="mt-4 text-sm text-slate-500">Loading locations…</p>
-        ) : (
-          <div className="mt-6 space-y-8">
-            {locations.cities.map((city) => (
-              <div key={city.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                <h3 className="font-semibold text-slate-900">
-                  {city.name}
-                  {city.slug === locations.defaultCitySlug ? (
-                    <span className="ml-2 text-xs font-normal text-emerald-600">(default for new posts)</span>
-                  ) : null}
-                </h3>
-                <ul className="mt-3 flex flex-wrap gap-2">
-                  {city.barangays.map((b) => (
-                    <li
-                      key={b.id}
-                      className="inline-flex items-center gap-2 rounded-lg bg-white px-2 py-1 text-sm text-slate-700 ring-1 ring-slate-200"
-                    >
-                      {b.name}
-                      <button
-                        type="button"
-                        onClick={() => void deleteBarangay(b.id)}
-                        className="text-xs text-red-600 hover:underline"
+        <div
+          id="admin-panel-cities"
+          role="tabpanel"
+          aria-labelledby="admin-tab-cities"
+          hidden={locationsSynonymsTab !== 'cities'}
+          className="mt-6"
+        >
+          <p className="text-sm text-slate-600">
+            Barangays are grouped under each city. Users pick a city and barangay when posting a price; the barangay list
+            updates when the city changes. Cebu City is the default city for new posts. GPS can auto-select a city when
+            the user is in the Cebu metro area.
+          </p>
+          {!locations ? (
+            <p className="mt-4 text-sm text-slate-500">Loading locations…</p>
+          ) : (
+            <div className="mt-6 space-y-8">
+              {locations.cities.map((city) => (
+                <div key={city.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+                  <h3 className="font-semibold text-slate-900">
+                    {city.name}
+                    {city.slug === locations.defaultCitySlug ? (
+                      <span className="ml-2 text-xs font-normal text-emerald-600">(default for new posts)</span>
+                    ) : null}
+                  </h3>
+                  <ul className="mt-3 flex flex-wrap gap-2">
+                    {city.barangays.map((b) => (
+                      <li
+                        key={b.id}
+                        className="inline-flex items-center gap-2 rounded-lg bg-white px-2 py-1 text-sm text-slate-700 ring-1 ring-slate-200"
                       >
-                        Remove
-                      </button>
-                    </li>
-                  ))}
-                  {city.barangays.length === 0 && (
-                    <li className="text-sm text-slate-400">No barangays yet — add one below.</li>
-                  )}
-                </ul>
+                        {b.name}
+                        <button
+                          type="button"
+                          onClick={() => void deleteBarangay(b.id)}
+                          className="text-xs text-red-600 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                    {city.barangays.length === 0 && (
+                      <li className="text-sm text-slate-400">No barangays yet — add one below.</li>
+                    )}
+                  </ul>
+                  <form
+                    className="mt-4 flex flex-wrap items-end gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      const fd = new FormData(e.currentTarget)
+                      const n = String(fd.get('name') ?? '').trim()
+                      if (n) void addBarangay(city.id, n)
+                      e.currentTarget.reset()
+                    }}
+                  >
+                    <div className="min-w-[12rem] flex-1">
+                      <label className="text-xs text-slate-500">New barangay name</label>
+                      <input
+                        name="name"
+                        required
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                        placeholder="e.g. Guadalupe"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                    >
+                      Add to {city.name}
+                    </button>
+                  </form>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div
+          id="admin-panel-synonyms"
+          role="tabpanel"
+          aria-labelledby="admin-tab-synonyms"
+          hidden={locationsSynonymsTab !== 'synonyms'}
+          className="mt-6"
+        >
+          <p className="text-sm text-slate-600">
+            Group alternate spellings or names for the same product or place. On the home page, the{' '}
+            <strong>product filter</strong> matches product name, brand, and category against any term in a{' '}
+            <strong>product</strong> group when the visitor’s search matches one of those terms. The{' '}
+            <strong>area label</strong> (with location set) filters posts to establishments whose name, city, barangay, or
+            address contains any term in an <strong>area</strong> group when the label matches a term. The label &quot;Current
+            location&quot; is ignored for text matching. Synonyms are case-insensitive.
+          </p>
+
+          <ul className="mt-4 space-y-4">
+            {state.searchSynonymGroups.map((g) => (
+              <li key={g.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
+                <p className="text-xs font-semibold uppercase text-slate-500">
+                  {g.type === 'product' ? 'Product' : 'Area'}
+                </p>
                 <form
-                  className="mt-4 flex flex-wrap items-end gap-2"
+                  className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end"
                   onSubmit={(e) => {
                     e.preventDefault()
                     const fd = new FormData(e.currentTarget)
-                    const n = String(fd.get('name') ?? '').trim()
-                    if (n) void addBarangay(city.id, n)
-                    e.currentTarget.reset()
+                    const raw = String(fd.get('terms') ?? '')
+                    void saveSearchSynonymGroup(g.id, raw)
                   }}
                 >
-                  <div className="min-w-[12rem] flex-1">
-                    <label className="text-xs text-slate-500">New barangay name</label>
-                    <input
-                      name="name"
-                      required
-                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                      placeholder="e.g. Guadalupe"
+                  <div className="min-w-0 flex-1">
+                    <label className="text-xs text-slate-500">Terms (comma or newline separated)</label>
+                    <textarea
+                      name="terms"
+                      key={`${g.id}-${g.terms.join('|')}`}
+                      defaultValue={g.terms.join(', ')}
+                      rows={2}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                     />
                   </div>
                   <button
                     type="submit"
-                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
                   >
-                    Add to {city.name}
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteSearchSynonymGroup(g.id)}
+                    className="rounded-lg px-3 py-2 text-sm text-red-600 hover:underline"
+                  >
+                    Delete
                   </button>
                 </form>
-              </div>
+              </li>
             ))}
-          </div>
-        )}
+          </ul>
+
+          <form
+            className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-6"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const fd = new FormData(e.currentTarget)
+              const type = fd.get('synType') === 'area' ? 'area' : 'product'
+              const raw = String(fd.get('synTerms') ?? '')
+              void addSearchSynonymGroup(type, raw)
+              e.currentTarget.reset()
+            }}
+          >
+            <div>
+              <label className="text-xs text-slate-500">New group type</label>
+              <select
+                name="synType"
+                className="mt-1 w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:w-auto"
+              >
+                <option value="product">Product (name / brand / category filter)</option>
+                <option value="area">Area (establishment location text)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Terms</label>
+              <textarea
+                name="synTerms"
+                required
+                rows={3}
+                placeholder="e.g. bangus, bangos, milkfish"
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-fit rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Add synonym group
+            </button>
+          </form>
+        </div>
       </section>
 
       <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
