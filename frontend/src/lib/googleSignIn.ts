@@ -4,6 +4,6 @@ import { apiUrl } from './api'
 export function redirectToGoogleSignIn(nextPath: string): void {
   const path = nextPath.startsWith('/') && !nextPath.startsWith('//') ? nextPath : '/'
   const callback = `${window.location.origin}/auth/callback?next=${encodeURIComponent(path)}`
-  const target = `${apiUrl('/auth/google/redirect')}?return=${encodeURIComponent(callback)}`
+  const target = `${apiUrl('/api/auth/google/redirect')}?return=${encodeURIComponent(callback)}`
   window.location.assign(target)
 }

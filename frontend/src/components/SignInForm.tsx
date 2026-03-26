@@ -125,7 +125,7 @@ export function SignInForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOidc
           Add <code className="rounded bg-slate-100 px-1">AUTH_GOOGLE_ID</code> and{' '}
           <code className="rounded bg-slate-100 px-1">AUTH_GOOGLE_SECRET</code> in Laravel{' '}
           <code className="rounded bg-slate-100 px-1">.env</code> and set the Google OAuth redirect URI to{' '}
-          <code className="rounded bg-slate-100 px-1">{'{APP_URL}'}/auth/google/callback</code>.
+          <code className="rounded bg-slate-100 px-1">{'{APP_URL}'}/api/auth/google/callback</code>.
         </p>
       )}
     </div>

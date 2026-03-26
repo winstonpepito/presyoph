@@ -4,9 +4,9 @@ use App\Http\Controllers\Api\Admin\AdminController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\V1\BannerController;
 use App\Http\Controllers\Api\V1\CategoryController;
-use App\Http\Controllers\Api\V1\FollowController;
 use App\Http\Controllers\Api\V1\CategoryDetailController;
 use App\Http\Controllers\Api\V1\EstablishmentDetailController;
+use App\Http\Controllers\Api\V1\FollowController;
 use App\Http\Controllers\Api\V1\GeoResolveController;
 use App\Http\Controllers\Api\V1\LocationsController;
 use App\Http\Controllers\Api\V1\MetaController;
@@ -14,8 +14,18 @@ use App\Http\Controllers\Api\V1\PostController;
 use App\Http\Controllers\Api\V1\ProductDetailController;
 use App\Http\Controllers\Api\V1\SearchController;
 use App\Http\Controllers\Api\V1\UserProfileController;
+use App\Http\Controllers\GoogleAuthController;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use Illuminate\Support\Facades\Route;
+
+/*
+| Same-domain hosting: nginx often sends only /api/* to Laravel; SPA handles /. These routes
+| live under /api so Google OAuth works without a separate /auth location.
+*/
+Route::middleware('web')->group(function () {
+    Route::get('/auth/google/redirect', [GoogleAuthController::class, 'redirect'])->name('auth.google.redirect');
+    Route::get('/auth/google/callback', [GoogleAuthController::class, 'callback'])->name('auth.google.callback');
+});
 
 Route::prefix('auth')->group(function () {
     Route::get('/providers', [AuthController::class, 'providers']);
