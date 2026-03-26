@@ -50,6 +50,17 @@ export function LocationBar() {
     startTransition(() => navigate({ search: p.toString() }, { replace: true }))
   }
 
+  const applyAreaLabel = useCallback(() => {
+    const trimmed = label.trim()
+    if (trimmed !== label) setLabel(trimmed)
+    const p = new URLSearchParams(spString)
+    if (trimmed) p.set('label', trimmed)
+    else p.delete('label')
+    const next = p.toString()
+    if (next === spString) return
+    startTransition(() => navigate({ search: next }, { replace: true }))
+  }, [label, spString, navigate, startTransition])
+
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end">
       <div className="min-w-0 flex-1">
@@ -66,18 +77,9 @@ export function LocationBar() {
           onKeyDown={(e) => {
             if (e.key !== 'Enter') return
             e.preventDefault()
-            ;(e.target as HTMLInputElement).blur()
+            applyAreaLabel()
           }}
-          onBlur={() => {
-            const trimmed = label.trim()
-            if (trimmed !== label) setLabel(trimmed)
-            const p = new URLSearchParams(spString)
-            if (trimmed) p.set('label', trimmed)
-            else p.delete('label')
-            const next = p.toString()
-            if (next === spString) return
-            startTransition(() => navigate({ search: next }, { replace: true }))
-          }}
+          onBlur={() => applyAreaLabel()}
         />
       </div>
       <div className="w-full sm:w-28">
@@ -106,6 +108,14 @@ export function LocationBar() {
           className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
         >
           Use my location
+        </button>
+        <button
+          type="button"
+          onClick={() => applyAreaLabel()}
+          className="rounded-xl border border-emerald-600 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+          aria-label="Apply area label to the feed"
+        >
+          Go
         </button>
         <button
           type="button"
