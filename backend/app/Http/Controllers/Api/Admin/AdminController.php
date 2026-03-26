@@ -10,8 +10,10 @@ use App\Models\PricePost;
 use App\Models\Product;
 use App\Models\ProductUnit;
 use App\Models\SearchSynonymGroup;
+use App\Models\User;
 use App\Services\SettingsService;
 use App\Support\Slugify;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -24,7 +26,7 @@ class AdminController extends Controller
         private SettingsService $settings,
     ) {}
 
-    public function state(): \Illuminate\Http\JsonResponse
+    public function state(): JsonResponse
     {
         $anonymousEnabled = $this->settings->anonymousPostingEnabled();
         $strategy = $this->settings->bannerStrategy('home_top');
@@ -47,7 +49,14 @@ class AdminController extends Controller
             ->orderBy('id')
             ->get();
 
+        $today = now()->startOfDay();
+
         return response()->json([
+            'stats' => [
+                'totalProducts' => Product::query()->count(),
+                'totalUsers' => User::query()->count(),
+                'productsAddedToday' => Product::query()->where('created_at', '>=', $today)->count(),
+            ],
             'anonymousEnabled' => $anonymousEnabled,
             'homeTopStrategy' => $strategy,
             'banners' => $banners->map(fn (BannerAd $b) => [
@@ -74,7 +83,7 @@ class AdminController extends Controller
         ]);
     }
 
-    public function flipAnonymous(): \Illuminate\Http\JsonResponse
+    public function flipAnonymous(): JsonResponse
     {
         $enabled = $this->settings->anonymousPostingEnabled();
         $this->settings->setAnonymousPostingEnabled(! $enabled);
@@ -82,7 +91,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true, 'anonymousEnabled' => ! $enabled]);
     }
 
-    public function setHomeTopStrategy(Request $request): \Illuminate\Http\JsonResponse
+    public function setHomeTopStrategy(Request $request): JsonResponse
     {
         $data = $request->validate([
             'strategy' => ['required', 'in:STATIC,ROTATE'],
@@ -92,7 +101,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function createBanner(Request $request): \Illuminate\Http\JsonResponse
+    public function createBanner(Request $request): JsonResponse
     {
         // Multipart fields often arrive as "" (API group has no ConvertEmptyStringsToNull).
         $request->merge([
@@ -149,7 +158,7 @@ class AdminController extends Controller
         return $value === '' ? null : $value;
     }
 
-    public function toggleBanner(Request $request, string $id): \Illuminate\Http\JsonResponse
+    public function toggleBanner(Request $request, string $id): JsonResponse
     {
         $data = $request->validate([
             'isActive' => ['required', 'boolean'],
@@ -161,7 +170,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function deleteBanner(string $id): \Illuminate\Http\JsonResponse
+    public function deleteBanner(string $id): JsonResponse
     {
         $b = BannerAd::query()->find((int) $id);
         if ($b) {
@@ -175,7 +184,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function storeBarangay(Request $request): \Illuminate\Http\JsonResponse
+    public function storeBarangay(Request $request): JsonResponse
     {
         $v = $request->validate([
             'cityId' => ['required', 'string', 'exists:cities,id'],
@@ -200,14 +209,14 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function deleteBarangay(string $id): \Illuminate\Http\JsonResponse
+    public function deleteBarangay(string $id): JsonResponse
     {
         Barangay::query()->whereKey((int) $id)->delete();
 
         return response()->json(['ok' => true]);
     }
 
-    public function storeCategory(Request $request): \Illuminate\Http\JsonResponse
+    public function storeCategory(Request $request): JsonResponse
     {
         $v = $request->validate([
             'name' => ['required', 'string', 'max:120'],
@@ -225,7 +234,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function updateCategory(Request $request, string $id): \Illuminate\Http\JsonResponse
+    public function updateCategory(Request $request, string $id): JsonResponse
     {
         $v = $request->validate([
             'name' => ['required', 'string', 'max:120'],
@@ -247,7 +256,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function deleteCategory(string $id): \Illuminate\Http\JsonResponse
+    public function deleteCategory(string $id): JsonResponse
     {
         $cid = (int) $id;
         if (Product::query()->where('category_id', $cid)->exists()) {
@@ -260,7 +269,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function storeProductUnit(Request $request): \Illuminate\Http\JsonResponse
+    public function storeProductUnit(Request $request): JsonResponse
     {
         $v = $request->validate([
             'code' => [
@@ -284,7 +293,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function updateProductUnit(Request $request, string $id): \Illuminate\Http\JsonResponse
+    public function updateProductUnit(Request $request, string $id): JsonResponse
     {
         $v = $request->validate([
             'label' => ['sometimes', 'required', 'string', 'max:120'],
@@ -302,7 +311,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function deleteProductUnit(string $id): \Illuminate\Http\JsonResponse
+    public function deleteProductUnit(string $id): JsonResponse
     {
         $u = ProductUnit::query()->findOrFail((int) $id);
         if (ProductUnit::query()->count() <= 1) {
@@ -319,7 +328,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function storeSearchSynonymGroup(Request $request): \Illuminate\Http\JsonResponse
+    public function storeSearchSynonymGroup(Request $request): JsonResponse
     {
         $v = $request->validate([
             'type' => ['required', 'in:product,area'],
@@ -341,7 +350,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function updateSearchSynonymGroup(Request $request, string $id): \Illuminate\Http\JsonResponse
+    public function updateSearchSynonymGroup(Request $request, string $id): JsonResponse
     {
         $g = SearchSynonymGroup::query()->findOrFail((int) $id);
         $v = $request->validate([
@@ -363,7 +372,7 @@ class AdminController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function deleteSearchSynonymGroup(string $id): \Illuminate\Http\JsonResponse
+    public function deleteSearchSynonymGroup(string $id): JsonResponse
     {
         SearchSynonymGroup::query()->whereKey((int) $id)->delete();
 

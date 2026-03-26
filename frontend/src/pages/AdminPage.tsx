@@ -5,6 +5,11 @@ import type { LocationsPayload } from '../types/locations'
 type SearchSynonymGroupRow = { id: string; type: 'product' | 'area'; terms: string[] }
 
 type AdminState = {
+  stats: {
+    totalProducts: number
+    totalUsers: number
+    productsAddedToday: number
+  }
   anonymousEnabled: boolean
   homeTopStrategy: 'STATIC' | 'ROTATE'
   banners: { id: string; isActive: boolean; slotKey: string }[]
@@ -13,13 +18,13 @@ type AdminState = {
   searchSynonymGroups: SearchSynonymGroupRow[]
 }
 
-type LocationsSynonymsTab = 'cities' | 'synonyms'
+type CatalogLocationsTab = 'categories' | 'units' | 'cities' | 'synonyms'
 
 export function AdminPage() {
   const [state, setState] = useState<AdminState | null>(null)
   const [locations, setLocations] = useState<LocationsPayload | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const [locationsSynonymsTab, setLocationsSynonymsTab] = useState<LocationsSynonymsTab>('cities')
+  const [catalogLocationsTab, setCatalogLocationsTab] = useState<CatalogLocationsTab>('cities')
 
   async function load() {
     const r = await apiFetch('/api/admin/state')
@@ -40,7 +45,13 @@ export function AdminPage() {
       searchSynonymGroups.push({ id, type, terms })
     }
 
+    const statsRaw = j.stats as Partial<AdminState['stats']> | undefined
     setState({
+      stats: {
+        totalProducts: typeof statsRaw?.totalProducts === 'number' ? statsRaw.totalProducts : 0,
+        totalUsers: typeof statsRaw?.totalUsers === 'number' ? statsRaw.totalUsers : 0,
+        productsAddedToday: typeof statsRaw?.productsAddedToday === 'number' ? statsRaw.productsAddedToday : 0,
+      },
       anonymousEnabled: !!j.anonymousEnabled,
       homeTopStrategy: j.homeTopStrategy === 'STATIC' ? 'STATIC' : 'ROTATE',
       banners: Array.isArray(j.banners) ? j.banners : [],
@@ -251,207 +262,76 @@ export function AdminPage() {
     <div className="mx-auto max-w-3xl px-4 py-8">
       <h1 className="text-2xl font-bold text-slate-900">Admin settings</h1>
 
-      <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Categories</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Categories appear in search and on posts. Users can leave a post uncategorized. Renaming updates the URL slug
-          for category pages. You cannot delete a category that still has products.
-        </p>
-        <ul className="mt-4 space-y-3">
-          {state.categories.map((c) => (
-            <li
-              key={c.id}
-              className="flex flex-col gap-2 rounded-xl border border-slate-100 bg-slate-50/80 p-3 sm:flex-row sm:items-end sm:justify-between"
-            >
-              <form
-                className="flex flex-1 flex-wrap items-end gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  const fd = new FormData(e.currentTarget)
-                  const n = String(fd.get('name') ?? '').trim()
-                  if (n) void saveCategory(c.id, n)
-                }}
-              >
-                <div className="min-w-[10rem] flex-1">
-                  <label className="text-xs text-slate-500">Name · {c.slug}</label>
-                  <input
-                    name="name"
-                    defaultValue={c.name}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Save
-                </button>
-              </form>
-              <button
-                type="button"
-                onClick={() => void deleteCategory(c.id)}
-                className="text-sm text-red-600 hover:underline sm:shrink-0"
-              >
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
-        <form
-          className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const fd = new FormData(e.currentTarget)
-            const n = String(fd.get('name') ?? '').trim()
-            if (n) {
-              void addCategory(n)
-              e.currentTarget.reset()
-            }
-          }}
-        >
-          <div className="min-w-[12rem] flex-1">
-            <label className="text-xs text-slate-500">New category name</label>
-            <input
-              name="name"
-              required
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              placeholder="e.g. Snacks"
-            />
-          </div>
-          <button
-            type="submit"
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-          >
-            Add category
-          </button>
-        </form>
-      </section>
-
-      <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Product units</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Units appear in the post form and on price cards. The code is stored on posts (immutable after creation). You
-          cannot delete a unit that is still in use, and at least one unit must exist.
-        </p>
-        <ul className="mt-4 space-y-3">
-          {state.productUnits.map((u) => (
-            <li
-              key={u.id}
-              className="rounded-xl border border-slate-100 bg-slate-50/80 p-3"
-            >
-              <form
-                className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  const fd = new FormData(e.currentTarget)
-                  const label = String(fd.get('label') ?? '').trim()
-                  const sortOrder = Number(fd.get('sortOrder') ?? u.sortOrder)
-                  if (label && !Number.isNaN(sortOrder)) void saveProductUnit(u.id, label, sortOrder)
-                }}
-              >
-                <div className="font-mono text-xs font-semibold text-slate-600 sm:w-24 sm:pt-2">{u.code}</div>
-                <div className="min-w-[8rem] flex-1">
-                  <label className="text-xs text-slate-500">Label</label>
-                  <input
-                    name="label"
-                    defaultValue={u.label}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                  />
-                </div>
-                <div className="w-24">
-                  <label className="text-xs text-slate-500">Sort</label>
-                  <input
-                    name="sortOrder"
-                    type="number"
-                    defaultValue={u.sortOrder}
-                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void deleteProductUnit(u.id)}
-                  className="rounded-lg px-3 py-2 text-sm text-red-600 hover:underline"
-                >
-                  Delete
-                </button>
-              </form>
-            </li>
-          ))}
-        </ul>
-        <form
-          className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:flex-wrap sm:items-end"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const fd = new FormData(e.currentTarget)
-            const code = String(fd.get('code') ?? '').trim()
-            const label = String(fd.get('label') ?? '').trim()
-            const so = fd.get('sortOrder')
-            const sortOrder = so !== null && String(so) !== '' ? Number(so) : undefined
-            if (code && label) {
-              void addProductUnit(code, label, sortOrder !== undefined && !Number.isNaN(sortOrder) ? sortOrder : undefined)
-              e.currentTarget.reset()
-            }
-          }}
-        >
-          <div className="min-w-[6rem]">
-            <label className="text-xs text-slate-500">Code</label>
-            <input
-              name="code"
-              required
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm"
-              placeholder="sack"
-              pattern="[A-Za-z][A-Za-z0-9_-]{0,30}"
-              title="Letter, then letters, digits, _ or - (max 32 chars)"
-            />
-          </div>
-          <div className="min-w-[10rem] flex-1">
-            <label className="text-xs text-slate-500">Label</label>
-            <input
-              name="label"
-              required
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Sack (25 kg)"
-            />
-          </div>
-          <div className="w-24">
-            <label className="text-xs text-slate-500">Sort (opt.)</label>
-            <input name="sortOrder" type="number" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-          </div>
-          <button
-            type="submit"
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-          >
-            Add unit
-          </button>
-        </form>
-      </section>
+      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total products</p>
+          <p className="mt-2 tabular-nums text-3xl font-bold text-slate-900">{state.stats.totalProducts}</p>
+          <p className="mt-1 text-xs text-slate-500">All catalog products</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total users</p>
+          <p className="mt-2 tabular-nums text-3xl font-bold text-slate-900">{state.stats.totalUsers}</p>
+          <p className="mt-1 text-xs text-slate-500">Registered accounts</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Products added today</p>
+          <p className="mt-2 tabular-nums text-3xl font-bold text-emerald-700">{state.stats.productsAddedToday}</p>
+          <p className="mt-1 text-xs text-slate-500">New products since midnight (app timezone)</p>
+        </div>
+      </div>
 
       <section className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Locations &amp; home search</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Switch between city/barangay setup and synonym groups for the home page product and area filters.
+          Categories, product units, city barangays, and synonym groups for the home page product and area filters.
         </p>
         <div
           className="mt-4 flex flex-wrap gap-1 border-b border-slate-200"
           role="tablist"
-          aria-label="Cities and search synonyms"
+          aria-label="Catalog, locations, and home search"
         >
           <button
             type="button"
             role="tab"
-            id="admin-tab-cities"
-            aria-selected={locationsSynonymsTab === 'cities'}
-            aria-controls="admin-panel-cities"
-            tabIndex={locationsSynonymsTab === 'cities' ? 0 : -1}
-            onClick={() => setLocationsSynonymsTab('cities')}
+            id="admin-tab-categories"
+            aria-selected={catalogLocationsTab === 'categories'}
+            aria-controls="admin-panel-categories"
+            tabIndex={catalogLocationsTab === 'categories' ? 0 : -1}
+            onClick={() => setCatalogLocationsTab('categories')}
             className={`rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors ${
-              locationsSynonymsTab === 'cities'
+              catalogLocationsTab === 'categories'
+                ? 'border border-b-0 border-slate-200 bg-white text-slate-900'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+            }`}
+          >
+            Categories
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="admin-tab-units"
+            aria-selected={catalogLocationsTab === 'units'}
+            aria-controls="admin-panel-units"
+            tabIndex={catalogLocationsTab === 'units' ? 0 : -1}
+            onClick={() => setCatalogLocationsTab('units')}
+            className={`rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+              catalogLocationsTab === 'units'
+                ? 'border border-b-0 border-slate-200 bg-white text-slate-900'
+                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+            }`}
+          >
+            Product units
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="admin-tab-cities"
+            aria-selected={catalogLocationsTab === 'cities'}
+            aria-controls="admin-panel-cities"
+            tabIndex={catalogLocationsTab === 'cities' ? 0 : -1}
+            onClick={() => setCatalogLocationsTab('cities')}
+            className={`rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+              catalogLocationsTab === 'cities'
                 ? 'border border-b-0 border-slate-200 bg-white text-slate-900'
                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
             }`}
@@ -462,12 +342,12 @@ export function AdminPage() {
             type="button"
             role="tab"
             id="admin-tab-synonyms"
-            aria-selected={locationsSynonymsTab === 'synonyms'}
+            aria-selected={catalogLocationsTab === 'synonyms'}
             aria-controls="admin-panel-synonyms"
-            tabIndex={locationsSynonymsTab === 'synonyms' ? 0 : -1}
-            onClick={() => setLocationsSynonymsTab('synonyms')}
+            tabIndex={catalogLocationsTab === 'synonyms' ? 0 : -1}
+            onClick={() => setCatalogLocationsTab('synonyms')}
             className={`rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors ${
-              locationsSynonymsTab === 'synonyms'
+              catalogLocationsTab === 'synonyms'
                 ? 'border border-b-0 border-slate-200 bg-white text-slate-900'
                 : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
             }`}
@@ -477,10 +357,198 @@ export function AdminPage() {
         </div>
 
         <div
+          id="admin-panel-categories"
+          role="tabpanel"
+          aria-labelledby="admin-tab-categories"
+          hidden={catalogLocationsTab !== 'categories'}
+          className="mt-6"
+        >
+          <p className="text-sm text-slate-600">
+            Categories appear in search and on posts. Users can leave a post uncategorized. Renaming updates the URL slug
+            for category pages. You cannot delete a category that still has products.
+          </p>
+          <ul className="mt-4 space-y-3">
+            {state.categories.map((c) => (
+              <li
+                key={c.id}
+                className="flex flex-col gap-2 rounded-xl border border-slate-100 bg-slate-50/80 p-3 sm:flex-row sm:items-end sm:justify-between"
+              >
+                <form
+                  className="flex flex-1 flex-wrap items-end gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const fd = new FormData(e.currentTarget)
+                    const n = String(fd.get('name') ?? '').trim()
+                    if (n) void saveCategory(c.id, n)
+                  }}
+                >
+                  <div className="min-w-[10rem] flex-1">
+                    <label className="text-xs text-slate-500">Name · {c.slug}</label>
+                    <input
+                      name="name"
+                      defaultValue={c.name}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                  >
+                    Save
+                  </button>
+                </form>
+                <button
+                  type="button"
+                  onClick={() => void deleteCategory(c.id)}
+                  className="text-sm text-red-600 hover:underline sm:shrink-0"
+                >
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+          <form
+            className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const fd = new FormData(e.currentTarget)
+              const n = String(fd.get('name') ?? '').trim()
+              if (n) {
+                void addCategory(n)
+                e.currentTarget.reset()
+              }
+            }}
+          >
+            <div className="min-w-[12rem] flex-1">
+              <label className="text-xs text-slate-500">New category name</label>
+              <input
+                name="name"
+                required
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                placeholder="e.g. Snacks"
+              />
+            </div>
+            <button
+              type="submit"
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Add category
+            </button>
+          </form>
+        </div>
+
+        <div
+          id="admin-panel-units"
+          role="tabpanel"
+          aria-labelledby="admin-tab-units"
+          hidden={catalogLocationsTab !== 'units'}
+          className="mt-6"
+        >
+          <p className="text-sm text-slate-600">
+            Units appear in the post form and on price cards. The code is stored on posts (immutable after creation). You
+            cannot delete a unit that is still in use, and at least one unit must exist.
+          </p>
+          <ul className="mt-4 space-y-3">
+            {state.productUnits.map((u) => (
+              <li key={u.id} className="rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <form
+                  className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const fd = new FormData(e.currentTarget)
+                    const label = String(fd.get('label') ?? '').trim()
+                    const sortOrder = Number(fd.get('sortOrder') ?? u.sortOrder)
+                    if (label && !Number.isNaN(sortOrder)) void saveProductUnit(u.id, label, sortOrder)
+                  }}
+                >
+                  <div className="font-mono text-xs font-semibold text-slate-600 sm:w-24 sm:pt-2">{u.code}</div>
+                  <div className="min-w-[8rem] flex-1">
+                    <label className="text-xs text-slate-500">Label</label>
+                    <input
+                      name="label"
+                      defaultValue={u.label}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="w-24">
+                    <label className="text-xs text-slate-500">Sort</label>
+                    <input
+                      name="sortOrder"
+                      type="number"
+                      defaultValue={u.sortOrder}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteProductUnit(u.id)}
+                    className="rounded-lg px-3 py-2 text-sm text-red-600 hover:underline"
+                  >
+                    Delete
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+          <form
+            className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:flex-wrap sm:items-end"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const fd = new FormData(e.currentTarget)
+              const code = String(fd.get('code') ?? '').trim()
+              const label = String(fd.get('label') ?? '').trim()
+              const so = fd.get('sortOrder')
+              const sortOrder = so !== null && String(so) !== '' ? Number(so) : undefined
+              if (code && label) {
+                void addProductUnit(code, label, sortOrder !== undefined && !Number.isNaN(sortOrder) ? sortOrder : undefined)
+                e.currentTarget.reset()
+              }
+            }}
+          >
+            <div className="min-w-[6rem]">
+              <label className="text-xs text-slate-500">Code</label>
+              <input
+                name="code"
+                required
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm"
+                placeholder="sack"
+                pattern="[A-Za-z][A-Za-z0-9_-]{0,30}"
+                title="Letter, then letters, digits, _ or - (max 32 chars)"
+              />
+            </div>
+            <div className="min-w-[10rem] flex-1">
+              <label className="text-xs text-slate-500">Label</label>
+              <input
+                name="label"
+                required
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                placeholder="Sack (25 kg)"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-xs text-slate-500">Sort (opt.)</label>
+              <input name="sortOrder" type="number" className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </div>
+            <button
+              type="submit"
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Add unit
+            </button>
+          </form>
+        </div>
+
+        <div
           id="admin-panel-cities"
           role="tabpanel"
           aria-labelledby="admin-tab-cities"
-          hidden={locationsSynonymsTab !== 'cities'}
+          hidden={catalogLocationsTab !== 'cities'}
           className="mt-6"
         >
           <p className="text-sm text-slate-600">
@@ -556,7 +624,7 @@ export function AdminPage() {
           id="admin-panel-synonyms"
           role="tabpanel"
           aria-labelledby="admin-tab-synonyms"
-          hidden={locationsSynonymsTab !== 'synonyms'}
+          hidden={catalogLocationsTab !== 'synonyms'}
           className="mt-6"
         >
           <p className="text-sm text-slate-600">
