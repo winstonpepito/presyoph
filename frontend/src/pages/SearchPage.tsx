@@ -2,8 +2,12 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { formatEstablishmentAddress } from '../lib/formatEstablishmentAddress'
 import { formatUnitSummary } from '../lib/formatUnit'
-import { formatPricePostLabel } from '../lib/pricing'
-import { useEffect, useState, type ReactNode } from 'react'
+import { comparablePrice, formatPricePostLabel } from '../lib/pricing'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+
+type SearchSortKey = 'brand' | 'primary' | 'unit' | 'price' | 'establishment' | 'address'
+
+type SearchSortState = { key: SearchSortKey; dir: 'asc' | 'desc' }
 
 type SearchEstablishmentRef = {
   id: string
@@ -83,16 +87,185 @@ function addressFromSampleEstablishment(s: SearchSampleFields): string {
   return formatEstablishmentAddress(s.establishment) ?? '—'
 }
 
-function SearchTableHead() {
+function establishmentCatalogAddress(e: {
+  addressLine: string | null
+  barangay: string | null
+  city: string | null
+}): string {
+  return formatEstablishmentAddress(e) ?? '—'
+}
+
+function categoryComparables(c: SearchData['categories'][number]): Record<SearchSortKey, string | number> {
+  const s = c
+  return {
+    brand: (s.brand ?? '').toLowerCase(),
+    primary: c.name.toLowerCase(),
+    unit: sampleUnit(s).toLowerCase(),
+    price: comparablePrice(s.priceExact, s.priceMin, s.priceMax),
+    establishment: (s.establishment?.name ?? '').toLowerCase(),
+    address: addressFromSampleEstablishment(s).toLowerCase(),
+  }
+}
+
+function productComparables(p: SearchData['products'][number]): Record<SearchSortKey, string | number> {
+  const s = productAsSample(p)
+  return {
+    brand: (s.brand ?? '').toLowerCase(),
+    primary: p.name.toLowerCase(),
+    unit: sampleUnit(s).toLowerCase(),
+    price: comparablePrice(s.priceExact, s.priceMin, s.priceMax),
+    establishment: (s.establishment?.name ?? '').toLowerCase(),
+    address: addressFromSampleEstablishment(s).toLowerCase(),
+  }
+}
+
+function establishmentComparables(e: SearchData['establishments'][number]): Record<SearchSortKey, string | number> {
+  const s = e
+  return {
+    brand: (s.brand ?? '').toLowerCase(),
+    primary: e.name.toLowerCase(),
+    unit: sampleUnit(s).toLowerCase(),
+    price: comparablePrice(s.priceExact, s.priceMin, s.priceMax),
+    establishment: (s.establishment?.name ?? '').toLowerCase(),
+    address: establishmentCatalogAddress(e).toLowerCase(),
+  }
+}
+
+function sortBySearchState<T extends { id: string }>(
+  rows: T[],
+  sort: SearchSortState | null,
+  getComparable: (row: T) => Record<SearchSortKey, string | number>,
+): T[] {
+  if (sort === null) {
+    return rows
+  }
+  const mult = sort.dir === 'asc' ? 1 : -1
+  const key = sort.key
+  return [...rows].sort((a, b) => {
+    const va = getComparable(a)[key]
+    const vb = getComparable(b)[key]
+    let cmp: number
+    if (key === 'price') {
+      const pa = va as number
+      const pb = vb as number
+      const ma = !Number.isFinite(pa) || pa === Number.POSITIVE_INFINITY
+      const mb = !Number.isFinite(pb) || pb === Number.POSITIVE_INFINITY
+      if (ma && mb) {
+        cmp = 0
+      } else if (ma) {
+        cmp = 1
+      } else if (mb) {
+        cmp = -1
+      } else {
+        cmp = pa - pb
+      }
+      if (cmp !== 0) {
+        return sort.dir === 'desc' ? -cmp : cmp
+      }
+    } else {
+      cmp = String(va).localeCompare(String(vb), undefined, { sensitivity: 'base', numeric: true })
+      if (cmp !== 0) {
+        return cmp * mult
+      }
+    }
+    return a.id.localeCompare(b.id)
+  })
+}
+
+function toggleSearchSort(
+  prev: SearchSortState | null,
+  key: SearchSortKey,
+): SearchSortState {
+  if (prev?.key === key) {
+    return { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+  }
+  return { key, dir: 'asc' }
+}
+
+function SearchMobileSortBar({
+  sort,
+  onSort,
+  ariaLabel,
+}: {
+  sort: SearchSortState | null
+  onSort: (key: SearchSortKey) => void
+  ariaLabel: string
+}) {
+  const keys: { key: SearchSortKey; label: string }[] = [
+    { key: 'brand', label: 'Brand' },
+    { key: 'primary', label: 'Product' },
+    { key: 'unit', label: 'Unit' },
+    { key: 'price', label: 'Price' },
+    { key: 'establishment', label: 'Store' },
+    { key: 'address', label: 'Address' },
+  ]
+  return (
+    <div className="mb-3 md:hidden" role="group" aria-label={ariaLabel}>
+      <p className="mb-1.5 text-xs font-medium text-slate-500">Sort by</p>
+      <div className="flex flex-wrap gap-1.5">
+        {keys.map(({ key, label }) => {
+          const active = sort?.key === key
+          const dir = sort?.dir
+          const arrow = active ? (dir === 'asc' ? ' ↑' : ' ↓') : ''
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onSort(key)}
+              className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 ${
+                active
+                  ? 'border-emerald-600 bg-emerald-50 text-emerald-900'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              {label}
+              <span className="text-slate-400" aria-hidden>
+                {arrow}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SearchTableHead({
+  sort,
+  onSort,
+}: {
+  sort: SearchSortState | null
+  onSort: (key: SearchSortKey) => void
+}) {
+  const thBtn = (key: SearchSortKey, label: string) => {
+    const active = sort?.key === key
+    const dir = sort?.dir
+    const arrow = active ? (dir === 'asc' ? ' ↑' : ' ↓') : ''
+    return (
+      <th className="py-2 pr-3" aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+        <button
+          type="button"
+          onClick={() => onSort(key)}
+          className="-mx-1 -my-0.5 rounded px-1 py-0.5 text-left font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60"
+        >
+          {label}
+          <span className="font-normal text-slate-400" aria-hidden>
+            {arrow}
+          </span>
+        </button>
+      </th>
+    )
+  }
+
   return (
     <thead>
-      <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        <th className="py-2 pr-3">Brand</th>
-        <th className="py-2 pr-3">Product</th>
-        <th className="py-2 pr-3">Unit</th>
-        <th className="py-2 pr-3">Price</th>
-        <th className="py-2 pr-3">Establishment</th>
-        <th className="py-2">Address</th>
+      <tr className="border-b border-slate-200 text-xs">
+        {thBtn('brand', 'Brand')}
+        {thBtn('primary', 'Product')}
+        {thBtn('unit', 'Unit')}
+        {thBtn('price', 'Price')}
+        {thBtn('establishment', 'Establishment')}
+        {thBtn('address', 'Address')}
       </tr>
     </thead>
   )
@@ -203,6 +376,9 @@ export function SearchPage() {
   const [searchParams] = useSearchParams()
   const q = searchParams.get('q') ?? ''
   const [data, setData] = useState<SearchData | null>(null)
+  const [categorySort, setCategorySort] = useState<SearchSortState | null>(null)
+  const [productSort, setProductSort] = useState<SearchSortState | null>(null)
+  const [establishmentSort, setEstablishmentSort] = useState<SearchSortState | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -215,6 +391,25 @@ export function SearchPage() {
       cancelled = true
     }
   }, [q])
+
+  useEffect(() => {
+    setCategorySort(null)
+    setProductSort(null)
+    setEstablishmentSort(null)
+  }, [q])
+
+  const sortedCategories = useMemo(
+    () => (data ? sortBySearchState(data.categories, categorySort, categoryComparables) : []),
+    [data, categorySort],
+  )
+  const sortedProducts = useMemo(
+    () => (data ? sortBySearchState(data.products, productSort, productComparables) : []),
+    [data, productSort],
+  )
+  const sortedEstablishments = useMemo(
+    () => (data ? sortBySearchState(data.establishments, establishmentSort, establishmentComparables) : []),
+    [data, establishmentSort],
+  )
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
@@ -244,15 +439,25 @@ export function SearchPage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Categories</h2>
             <p className="mt-1 text-xs text-slate-500">
               Name matches your search and <strong className="font-medium text-slate-600">admin product synonyms</strong>{' '}
-              (same as the home page). Sorted by most recent price activity, then name. Sample columns use the cheapest
-              price post in that category (newest tie-break), same as product search.
+              (same as the home page). Default order is most recent price activity, then name. Sample columns use the
+              cheapest price post in that category (newest tie-break). Click column headers in the table or use Sort by
+              on small screens; the list order matches your choice.
             </p>
+
+            <SearchMobileSortBar
+              sort={categorySort}
+              onSort={(key) => setCategorySort((prev) => toggleSearchSort(prev, key))}
+              ariaLabel="Sort categories"
+            />
 
             <div className="mt-4 hidden overflow-x-auto md:block">
               <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                <SearchTableHead />
+                <SearchTableHead
+                  sort={categorySort}
+                  onSort={(key) => setCategorySort((prev) => toggleSearchSort(prev, key))}
+                />
                 <tbody>
-                  {data.categories.map((c) => (
+                  {sortedCategories.map((c) => (
                     <SearchTableRow
                       key={c.id}
                       sample={c}
@@ -275,7 +480,7 @@ export function SearchPage() {
             </div>
 
             <ul className="mt-4 space-y-4 md:hidden">
-              {data.categories.map((c) => (
+              {sortedCategories.map((c) => (
                 <SearchMobileCard
                   key={c.id}
                   headlineLabel="Category"
@@ -303,16 +508,26 @@ export function SearchPage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Products</h2>
             <p className="mt-1 text-xs text-slate-500">
               Matches product name, brand, or category using the same{' '}
-              <strong className="font-medium text-slate-600">synonym groups</strong> as the home feed. Sorted by most
-              recent price activity, then lowest reported price, then name. Price and store come from the cheapest
-              matching post (newest tie-break).
+              <strong className="font-medium text-slate-600">synonym groups</strong> as the home feed. Default order is
+              most recent activity, then lowest price, then name. Price and store come from the cheapest matching post
+              (newest tie-break). Click column headers in the table or use Sort by on small screens; the list order
+              matches your choice.
             </p>
+
+            <SearchMobileSortBar
+              sort={productSort}
+              onSort={(key) => setProductSort((prev) => toggleSearchSort(prev, key))}
+              ariaLabel="Sort products"
+            />
 
             <div className="mt-4 hidden overflow-x-auto md:block">
               <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                <SearchTableHead />
+                <SearchTableHead
+                  sort={productSort}
+                  onSort={(key) => setProductSort((prev) => toggleSearchSort(prev, key))}
+                />
                 <tbody>
-                  {data.products.map((p) => {
+                  {sortedProducts.map((p) => {
                     const s = productAsSample(p)
                     return (
                       <SearchTableRow
@@ -340,7 +555,7 @@ export function SearchPage() {
             </div>
 
             <ul className="mt-4 space-y-4 md:hidden">
-              {data.products.map((p) => {
+              {sortedProducts.map((p) => {
                 const s = productAsSample(p)
                 return (
                   <SearchMobileCard
@@ -365,15 +580,25 @@ export function SearchPage() {
           <section>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Establishments</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Name contains your search. Sorted by most recent price post at the store, then name. Sample columns use
-              the cheapest post at that store (newest tie-break). Address is the store&apos;s catalog location.
+              Name contains your search. Default order is most recent price post at the store, then name. Sample columns
+              use the cheapest post at that store (newest tie-break). Address is the store&apos;s catalog location. Click
+              column headers in the table or use Sort by on small screens; the list order matches your choice.
             </p>
+
+            <SearchMobileSortBar
+              sort={establishmentSort}
+              onSort={(key) => setEstablishmentSort((prev) => toggleSearchSort(prev, key))}
+              ariaLabel="Sort establishments"
+            />
 
             <div className="mt-4 hidden overflow-x-auto md:block">
               <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                <SearchTableHead />
+                <SearchTableHead
+                  sort={establishmentSort}
+                  onSort={(key) => setEstablishmentSort((prev) => toggleSearchSort(prev, key))}
+                />
                 <tbody>
-                  {data.establishments.map((e) => {
+                  {sortedEstablishments.map((e) => {
                     const addr =
                       formatEstablishmentAddress({
                         addressLine: e.addressLine,
@@ -404,7 +629,7 @@ export function SearchPage() {
             </div>
 
             <ul className="mt-4 space-y-4 md:hidden">
-              {data.establishments.map((e) => {
+              {sortedEstablishments.map((e) => {
                 const addr =
                   formatEstablishmentAddress({
                     addressLine: e.addressLine,
