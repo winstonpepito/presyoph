@@ -4,16 +4,19 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PricePostResource;
+use App\Http\Support\OptionalSanctum;
+use App\Models\Category;
 use App\Models\Establishment;
+use App\Models\Follow;
 use App\Models\PricePost;
 use App\Models\Product;
+use App\Models\ProductUnit;
 use App\Models\User;
-use App\Http\Support\OptionalSanctum;
 use App\Services\PostQueryService;
 use App\Services\SettingsService;
-use App\Models\ProductUnit;
 use App\Support\Slugify;
 use App\Support\TextCase;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -25,7 +28,7 @@ class PostController extends Controller
         private SettingsService $settings,
     ) {}
 
-    public function index(Request $request): \Illuminate\Http\JsonResponse
+    public function index(Request $request): JsonResponse
     {
         $lat = $request->query('lat');
         $lng = $request->query('lng');
@@ -66,7 +69,7 @@ class PostController extends Controller
             }
             $result = $this->posts->bestPricesForProduct($product->id, $latN, $lngN, $radiusKm, $limit, $offset);
         } elseif ($categorySlug) {
-            $cat = \App\Models\Category::query()->where('slug', $categorySlug)->first();
+            $cat = Category::query()->where('slug', $categorySlug)->first();
             if (! $cat) {
                 return response()->json([
                     'posts' => [],
@@ -84,7 +87,7 @@ class PostController extends Controller
             if ($following) {
                 $uid = $this->optionalSanctumUserId($request);
                 if ($uid) {
-                    $followingUserIds = \App\Models\Follow::query()
+                    $followingUserIds = Follow::query()
                         ->where('follower_id', $uid)
                         ->pluck('following_id')
                         ->all();
@@ -101,7 +104,12 @@ class PostController extends Controller
 
         $hasMore = $returned > 0 && ($offset + $returned) < $total;
 
-        return response()->json([
+        $spotlightPayload = null;
+        if (! $productSlug && ! $categorySlug && $offset === 0 && ! $following && $keyword === null) {
+            $spotlightPayload = $this->posts->latestSpotlightPostsForHome($latN, $lngN, $radiusKm, $areaKeyword);
+        }
+
+        $response = [
             'posts' => PricePostResource::collection($list)->resolve(),
             'meta' => [
                 'offset' => $offset,
@@ -109,10 +117,26 @@ class PostController extends Controller
                 'total' => $total,
                 'hasMore' => $hasMore,
             ],
-        ]);
+        ];
+
+        if ($spotlightPayload !== null) {
+            $response['spotlightPosts'] = [
+                'gasoline' => $spotlightPayload['gasoline'] !== null
+                    ? (new PricePostResource($spotlightPayload['gasoline']))->toArray($request)
+                    : null,
+                'diesel' => $spotlightPayload['diesel'] !== null
+                    ? (new PricePostResource($spotlightPayload['diesel']))->toArray($request)
+                    : null,
+                'rice' => $spotlightPayload['rice'] !== null
+                    ? (new PricePostResource($spotlightPayload['rice']))->toArray($request)
+                    : null,
+            ];
+        }
+
+        return response()->json($response);
     }
 
-    public function store(Request $request): \Illuminate\Http\JsonResponse
+    public function store(Request $request): JsonResponse
     {
         $data = $request->all();
         if (($data['categoryId'] ?? null) === '' || ($data['categoryId'] ?? null) === null) {
@@ -259,7 +283,7 @@ class PostController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function update(Request $request, PricePost $post): \Illuminate\Http\JsonResponse
+    public function update(Request $request, PricePost $post): JsonResponse
     {
         $post->load(['product.category', 'establishment']);
         $auth = $request->user();
@@ -386,7 +410,7 @@ class PostController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    public function destroy(Request $request, PricePost $post): \Illuminate\Http\JsonResponse
+    public function destroy(Request $request, PricePost $post): JsonResponse
     {
         $auth = $request->user();
         if (! $this->userCanManagePricePost($auth, $post)) {

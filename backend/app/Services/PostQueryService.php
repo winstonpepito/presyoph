@@ -23,6 +23,7 @@ class PostQueryService
 
     public function __construct(
         private SearchSynonymService $searchSynonyms,
+        private HomeSpotlightTermsService $spotlightTerms,
     ) {}
 
     private function baseWith(): array
@@ -102,6 +103,68 @@ class PostQueryService
         $page = $sorted->slice($offset, $limit)->values();
 
         return ['items' => $page, 'total' => $total];
+    }
+
+    /**
+     * Latest post per spotlight slot using the same geo / area rules as the home feed, independent of
+     * feed sort (cheapest-first would otherwise exclude fuel/rice from page 1).
+     *
+     * @return array{gasoline: ?PricePost, diesel: ?PricePost, rice: ?PricePost}
+     */
+    public function latestSpotlightPostsForHome(
+        ?float $lat,
+        ?float $lng,
+        float $radiusKm,
+        ?string $areaKeyword,
+    ): array {
+        $termsBySlot = $this->spotlightTerms->mergedNeedlesPerSlot();
+        $areaNeedles = $this->resolveAreaSearchNeedles($areaKeyword);
+        $out = ['gasoline' => null, 'diesel' => null, 'rice' => null];
+        foreach (SearchSynonymGroup::SPOTLIGHT_KEYS as $key) {
+            $needles = $termsBySlot[$key] ?? [];
+            if ($needles === []) {
+                continue;
+            }
+            $out[$key] = $this->findLatestPostMatchingProductNeedles($needles, $lat, $lng, $radiusKm, $areaNeedles);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<string>  $needles
+     * @param  list<string>  $areaNeedles
+     */
+    private function findLatestPostMatchingProductNeedles(
+        array $needles,
+        ?float $lat,
+        ?float $lng,
+        float $radiusKm,
+        array $areaNeedles,
+    ): ?PricePost {
+        $posts = PricePost::query()
+            ->with($this->baseWith())
+            ->whereHas('product', function (Builder $query) use ($needles) {
+                $this->applyProductNeedlesToProductBuilder($query, $needles);
+            })
+            ->orderByDesc('created_at')
+            ->limit(self::HOME_FEED_POOL_CAP)
+            ->get();
+
+        foreach ($posts as $p) {
+            if ($lat !== null && $lng !== null && ! is_nan($lat) && ! is_nan($lng)) {
+                if (Geo::distanceKm($lat, $lng, (float) $p->latitude, (float) $p->longitude) > $radiusKm) {
+                    continue;
+                }
+            }
+            if ($areaNeedles !== [] && ! $this->establishmentMatchesAreaNeedles($p->establishment, $areaNeedles)) {
+                continue;
+            }
+
+            return $p;
+        }
+
+        return null;
     }
 
     /**

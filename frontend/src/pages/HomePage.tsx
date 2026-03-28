@@ -68,17 +68,41 @@ function pickLatestMatching(posts: PricePostView[], needles: string[]): PricePos
   return best
 }
 
+type ServerSpotlightPosts = {
+  gasoline: PricePostView | null
+  diesel: PricePostView | null
+  rice: PricePostView | null
+}
+
 function useHomeFeedDisplayPosts(
   posts: PricePostView[],
+  spotlightFromServer: ServerSpotlightPosts | null,
+  useServerSpotlight: boolean,
   spotlightChunk: PricePostView[] | null,
   spotlightTerms: SpotlightProductTerms | null,
   view: string,
   eligibleForSpotlight: boolean,
 ): { displayPosts: PricePostView[]; spotlightIds: Set<string> } {
   return useMemo(() => {
+    if (view === 'following' || !eligibleForSpotlight) {
+      return { displayPosts: posts, spotlightIds: new Set<string>() }
+    }
+
+    /** API picks latest match per slot (not limited to cheapest-first page 1). */
+    if (useServerSpotlight && spotlightFromServer) {
+      const featured = [spotlightFromServer.gasoline, spotlightFromServer.diesel, spotlightFromServer.rice].filter(
+        (x): x is PricePostView => x != null,
+      )
+      if (featured.length === 0) {
+        return { displayPosts: posts, spotlightIds: new Set<string>() }
+      }
+      const spotlightIds = new Set(featured.map((p) => p.id))
+      const rest = posts.filter((p) => !spotlightIds.has(p.id))
+      return { displayPosts: [...featured, ...rest], spotlightIds }
+    }
+
+    /** Legacy: derive from first page + /meta terms only. */
     if (
-      view === 'following' ||
-      !eligibleForSpotlight ||
       !spotlightChunk?.length ||
       !spotlightTerms ||
       (!spotlightTerms.gasoline.length && !spotlightTerms.diesel.length && !spotlightTerms.rice.length)
@@ -95,7 +119,15 @@ function useHomeFeedDisplayPosts(
     const spotlightIds = new Set(featured.map((p) => p.id))
     const rest = posts.filter((p) => !spotlightIds.has(p.id))
     return { displayPosts: [...featured, ...rest], spotlightIds }
-  }, [posts, spotlightChunk, spotlightTerms, view, eligibleForSpotlight])
+  }, [
+    posts,
+    spotlightFromServer,
+    useServerSpotlight,
+    spotlightChunk,
+    spotlightTerms,
+    view,
+    eligibleForSpotlight,
+  ])
 }
 
 type PostsIndexMeta = {
@@ -165,6 +197,8 @@ export function HomePage() {
   const [followingDirectory, setFollowingDirectory] = useState<FollowDirectoryUser[] | null>(null)
   const [spotlightChunk, setSpotlightChunk] = useState<PricePostView[] | null>(null)
   const [spotlightTerms, setSpotlightTerms] = useState<SpotlightProductTerms | null>(null)
+  const [spotlightFromServer, setSpotlightFromServer] = useState<ServerSpotlightPosts | null>(null)
+  const [useServerSpotlight, setUseServerSpotlight] = useState(false)
 
   const lat = searchParams.get('lat')
   const lng = searchParams.get('lng')
@@ -185,6 +219,8 @@ export function HomePage() {
 
   const { displayPosts, spotlightIds } = useHomeFeedDisplayPosts(
     posts,
+    spotlightFromServer,
+    useServerSpotlight,
     spotlightChunk,
     spotlightTerms,
     view,
@@ -244,10 +280,16 @@ export function HomePage() {
     setPosts([])
     setPostsMeta(null)
     setSpotlightChunk(null)
+    setSpotlightFromServer(null)
+    setUseServerSpotlight(false)
     setPostsInitialLoading(true)
     void (async () => {
       const r = await apiFetch(`/api/v1/posts?${buildPostsParams(0).toString()}`)
-      const j = (await r.json()) as { posts: PricePostView[]; meta: PostsIndexMeta }
+      const j = (await r.json()) as {
+        posts: PricePostView[]
+        meta: PostsIndexMeta
+        spotlightPosts?: ServerSpotlightPosts
+      }
       if (cancelled) {
         return
       }
@@ -256,6 +298,17 @@ export function HomePage() {
       setPostsMeta(j.meta ?? { offset: 0, limit: HOME_FEED_PAGE_SIZE, total: 0, hasMore: false })
       if (eligibleForSpotlight) {
         setSpotlightChunk(chunk)
+      }
+      if (j.spotlightPosts && typeof j.spotlightPosts === 'object') {
+        setSpotlightFromServer({
+          gasoline: j.spotlightPosts.gasoline ?? null,
+          diesel: j.spotlightPosts.diesel ?? null,
+          rice: j.spotlightPosts.rice ?? null,
+        })
+        setUseServerSpotlight(true)
+      } else {
+        setSpotlightFromServer(null)
+        setUseServerSpotlight(false)
       }
       setPostsInitialLoading(false)
     })()
