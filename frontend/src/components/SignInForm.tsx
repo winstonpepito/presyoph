@@ -16,6 +16,7 @@ export function SignInForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOidc
       : '/auth/register'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
   const [err, setErr] = useState('')
   const [pending, setPending] = useState(false)
   const urlError = searchParams.get('error')
@@ -27,7 +28,7 @@ export function SignInForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOidc
     try {
       const r = await apiFetch('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, remember: rememberMe }),
         skipAuth: true,
       })
       const data = (await r.json()) as { token?: string; user?: SessionUser; message?: string; errors?: Record<string, string[]> }
@@ -73,6 +74,15 @@ export function SignInForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOidc
             autoComplete="current-password"
           />
         </div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+            className="rounded border-slate-300 text-slate-900"
+          />
+          Keep me signed in on this device
+        </label>
         <button
           type="submit"
           disabled={pending}

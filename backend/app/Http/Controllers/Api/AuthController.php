@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\BannerService;
+use App\Services\SpaTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -15,6 +16,10 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private SpaTokenService $spaTokens,
+    ) {}
+
     public function providers(): JsonResponse
     {
         return response()->json([
@@ -29,6 +34,7 @@ class AuthController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
+            'remember' => ['sometimes', 'boolean'],
         ]);
 
         $user = User::query()->create([
@@ -38,7 +44,8 @@ class AuthController extends Controller
             'role' => 'USER',
         ]);
 
-        $token = $user->createToken('spa')->plainTextToken;
+        $remember = $data['remember'] ?? true;
+        $token = $this->spaTokens->issue($user, $remember);
 
         return response()->json([
             'token' => $token,
@@ -51,6 +58,7 @@ class AuthController extends Controller
         $data = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
+            'remember' => ['sometimes', 'boolean'],
         ]);
 
         $user = User::query()->where('email', $data['email'])->first();
@@ -65,7 +73,8 @@ class AuthController extends Controller
         }
 
         $user->tokens()->delete();
-        $token = $user->createToken('spa')->plainTextToken;
+        $remember = $data['remember'] ?? true;
+        $token = $this->spaTokens->issue($user, $remember);
 
         return response()->json([
             'token' => $token,

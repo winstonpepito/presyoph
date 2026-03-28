@@ -1,5 +1,8 @@
 <?php
 
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
+use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
 use Laravel\Sanctum\Sanctum;
 
 return [
@@ -51,6 +54,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | SPA bearer token lifetimes (Personal Access Tokens)
+    |--------------------------------------------------------------------------
+    |
+    | Login/register send "remember": true for long-lived tokens (default).
+    | When remember is false, the shorter ephemeral lifetime is used.
+    |
+    */
+
+    'remember_token_days' => (int) env('SANCTUM_REMEMBER_DAYS', 365),
+
+    'ephemeral_token_days' => (int) env('SANCTUM_EPHEMERAL_DAYS', 7),
+
+    /*
+    |--------------------------------------------------------------------------
     | Token Prefix
     |--------------------------------------------------------------------------
     |
@@ -76,9 +93,9 @@ return [
     */
 
     'middleware' => [
-        'authenticate_session' => Laravel\Sanctum\Http\Middleware\AuthenticateSession::class,
-        'encrypt_cookies' => Illuminate\Cookie\Middleware\EncryptCookies::class,
-        'validate_csrf_token' => Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+        'authenticate_session' => AuthenticateSession::class,
+        'encrypt_cookies' => EncryptCookies::class,
+        'validate_csrf_token' => ValidateCsrfToken::class,
     ],
 
 ];

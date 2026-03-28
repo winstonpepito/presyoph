@@ -19,6 +19,7 @@ export function RegisterForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOi
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [passwordConfirmation, setPasswordConfirmation] = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [formErr, setFormErr] = useState('')
   const [pending, setPending] = useState(false)
@@ -36,6 +37,7 @@ export function RegisterForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOi
           email: email.trim(),
           password,
           password_confirmation: passwordConfirmation,
+          remember: rememberMe,
         }),
         skipAuth: true,
       })
@@ -120,6 +122,15 @@ export function RegisterForm({ hasGoogle, hasOidc }: { hasGoogle: boolean; hasOi
             <p className="mt-1 text-xs text-red-600">{errors.password_confirmation}</p>
           ) : null}
         </div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+            className="rounded border-slate-300 text-emerald-700"
+          />
+          Keep me signed in on this device
+        </label>
         <button
           type="submit"
           disabled={pending}

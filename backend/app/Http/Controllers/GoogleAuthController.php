@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\SpaTokenService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -10,6 +11,10 @@ use Laravel\Socialite\Facades\Socialite;
 
 class GoogleAuthController extends Controller
 {
+    public function __construct(
+        private SpaTokenService $spaTokens,
+    ) {}
+
     public function redirect(Request $request): RedirectResponse
     {
         if (! config('services.google.client_id') || ! config('services.google.client_secret')) {
@@ -81,7 +86,7 @@ class GoogleAuthController extends Controller
         }
 
         $user->tokens()->delete();
-        $token = $user->createToken('spa')->plainTextToken;
+        $token = $this->spaTokens->issue($user, true);
 
         $return = $request->session()->pull('google_oauth_return', $this->frontendCallbackDefault());
         $sep = str_contains($return, '?') ? '&' : '?';
