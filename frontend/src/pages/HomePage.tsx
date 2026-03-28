@@ -5,17 +5,83 @@ import { PostCard } from '../components/PostCard'
 import { apiFetch } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import type { PricePostView } from '../types/post'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type FollowDirectoryUser = { id: string; name: string | null; image: string | null }
+
+const HOME_FEED_PAGE_SIZE = 24
+
+type PostsIndexMeta = {
+  offset: number
+  limit: number
+  total: number
+  hasMore: boolean
+}
+
+function HomeFeedLoadSentinel({
+  hasMore,
+  loading,
+  onLoadMore,
+}: {
+  hasMore: boolean
+  loading: boolean
+  onLoadMore: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const onLoadMoreRef = useRef(onLoadMore)
+  onLoadMoreRef.current = onLoadMore
+
+  useEffect(() => {
+    if (!hasMore || loading) {
+      return
+    }
+    const el = ref.current
+    if (!el) {
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          onLoadMoreRef.current()
+        }
+      },
+      { root: null, rootMargin: '160px', threshold: 0 },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasMore, loading])
+
+  if (!hasMore) {
+    return null
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="col-span-full flex min-h-12 items-center justify-center py-4 text-sm text-slate-500"
+      aria-live="polite"
+    >
+      {loading ? 'Loading more…' : '\u00a0'}
+    </div>
+  )
+}
 
 export function HomePage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { user, status } = useAuth()
-  const [posts, setPosts] = useState<PricePostView[] | null>(null)
+  const [posts, setPosts] = useState<PricePostView[]>([])
+  const [postsMeta, setPostsMeta] = useState<PostsIndexMeta | null>(null)
+  const [postsInitialLoading, setPostsInitialLoading] = useState(false)
+  const [postsLoadingMore, setPostsLoadingMore] = useState(false)
   const [postsVersion, setPostsVersion] = useState(0)
   const [followingDirectory, setFollowingDirectory] = useState<FollowDirectoryUser[] | null>(null)
+
+  const postsLoadLock = useRef(false)
+  const postsRef = useRef(posts)
+  useEffect(() => {
+    postsRef.current = posts
+  }, [posts])
 
   const lat = searchParams.get('lat')
   const lng = searchParams.get('lng')
@@ -36,27 +102,65 @@ export function HomePage() {
   followParams.set('view', 'following')
   const followingHref = `/?${followParams.toString()}`
 
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
+  const buildPostsParams = useCallback(
+    (offset: number) => {
       const p = new URLSearchParams()
       if (lat) p.set('lat', lat)
       if (lng) p.set('lng', lng)
       p.set('radiusKm', radiusKm)
-      p.set('limit', '24')
+      p.set('limit', String(HOME_FEED_PAGE_SIZE))
+      p.set('offset', String(offset))
       if (view === 'following') p.set('following', '1')
       const qTrim = productQ.trim()
       if (qTrim) p.set('q', qTrim)
       const areaLabel = areaLabelParam.trim()
       if (areaLabel) p.set('label', areaLabel)
-      const r = await apiFetch(`/api/v1/posts?${p.toString()}`)
-      const j = (await r.json()) as { posts: PricePostView[] }
-      if (!cancelled) setPosts(j.posts ?? [])
+      return p
+    },
+    [lat, lng, radiusKm, view, productQ, areaLabelParam],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    setPosts([])
+    setPostsMeta(null)
+    setPostsInitialLoading(true)
+    void (async () => {
+      const r = await apiFetch(`/api/v1/posts?${buildPostsParams(0).toString()}`)
+      const j = (await r.json()) as { posts: PricePostView[]; meta: PostsIndexMeta }
+      if (cancelled) {
+        return
+      }
+      setPosts(j.posts ?? [])
+      setPostsMeta(j.meta ?? { offset: 0, limit: HOME_FEED_PAGE_SIZE, total: 0, hasMore: false })
+      setPostsInitialLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [lat, lng, radiusKm, view, user?.id, productQ, areaLabelParam, postsVersion])
+  }, [buildPostsParams, user?.id, postsVersion])
+
+  const loadMorePosts = useCallback(async () => {
+    if (!postsMeta?.hasMore || postsLoadLock.current || postsInitialLoading) {
+      return
+    }
+    postsLoadLock.current = true
+    setPostsLoadingMore(true)
+    try {
+      const offset = postsRef.current.length
+      const r = await apiFetch(`/api/v1/posts?${buildPostsParams(offset).toString()}`)
+      const j = (await r.json()) as { posts: PricePostView[]; meta: PostsIndexMeta }
+      if (j.posts?.length) {
+        setPosts((prev) => [...prev, ...j.posts])
+      }
+      if (j.meta) {
+        setPostsMeta(j.meta)
+      }
+    } finally {
+      postsLoadLock.current = false
+      setPostsLoadingMore(false)
+    }
+  }, [postsMeta?.hasMore, postsInitialLoading, buildPostsParams])
 
   useEffect(() => {
     if (view !== 'following' || !user?.id) {
@@ -91,13 +195,14 @@ export function HomePage() {
             {view === 'following' ? (
               <>
                 Recent price posts from accounts you follow, <strong className="font-medium text-slate-800">newest first</strong>
-                {productQ.trim() ? `, matching “${productQ.trim()}”` : ''}. Not limited to your map radius.
+                {productQ.trim() ? `, matching “${productQ.trim()}”` : ''}. Not limited to your map radius. Scroll down to
+                load more when available.
               </>
             ) : (
               <>
                 Sorted by <strong className="font-medium text-slate-800">lowest price first</strong>
                 {lat != null && lng != null ? ' in your selected radius' : ''}
-                {productQ.trim() ? `, matching “${productQ.trim()}”` : ''}.
+                {productQ.trim() ? `, matching “${productQ.trim()}”` : ''}. Scroll down to load more when available.
               </>
             )}
           </p>
@@ -214,7 +319,7 @@ export function HomePage() {
       </div>
 
       <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {posts === null ? (
+        {postsInitialLoading ? (
           <p className="col-span-full text-center text-slate-500">Loading…</p>
         ) : posts.length === 0 ? (
           <p className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center text-slate-500">
@@ -256,9 +361,16 @@ export function HomePage() {
             )}
           </p>
         ) : (
-          posts.map((post) => (
-            <PostCard key={post.id} post={post} onMutate={() => setPostsVersion((v) => v + 1)} />
-          ))
+          <>
+            {posts.map((post) => (
+              <PostCard key={post.id} post={post} onMutate={() => setPostsVersion((v) => v + 1)} />
+            ))}
+            <HomeFeedLoadSentinel
+              hasMore={Boolean(postsMeta?.hasMore)}
+              loading={postsLoadingMore}
+              onLoadMore={() => void loadMorePosts()}
+            />
+          </>
         )}
       </section>
     </div>

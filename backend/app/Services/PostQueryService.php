@@ -18,6 +18,9 @@ class PostQueryService
     /** Max rows considered per entity type before sort + slice (search pagination). */
     private const SEARCH_CATALOG_CAP = 400;
 
+    /** Recent posts pulled from DB before geo/area filter and sort (home feed pagination). */
+    private const HOME_FEED_POOL_CAP = 500;
+
     public function __construct(
         private SearchSynonymService $searchSynonyms,
     ) {}
@@ -33,7 +36,7 @@ class PostQueryService
 
     /**
      * @param  list<int>|null  $followingUserIds
-     * @return Collection<int, PricePost>
+     * @return array{items: Collection<int, PricePost>, total: int}
      */
     public function listRecentPosts(
         ?float $lat,
@@ -43,16 +46,16 @@ class PostQueryService
         ?array $followingUserIds = null,
         ?string $keyword = null,
         ?string $areaKeyword = null,
-    ): Collection {
+        int $offset = 0,
+    ): array {
         if ($followingUserIds !== null) {
             if ($followingUserIds === []) {
-                return collect();
+                return ['items' => collect(), 'total' => 0];
             }
 
-            return $this->listPostsFromFollowedUsers($followingUserIds, $limit, $keyword, $areaKeyword);
+            return $this->listPostsFromFollowedUsers($followingUserIds, $limit, $keyword, $areaKeyword, $offset);
         }
 
-        $take = $limit * 3;
         $term = $keyword !== null ? trim($keyword) : '';
         $productNeedles = $term !== ''
             ? $this->searchSynonyms->expandTerms($term, SearchSynonymGroup::TYPE_PRODUCT)
@@ -67,7 +70,7 @@ class PostQueryService
                 $this->applyProductNeedlesToPricePostQuery($query, $productNeedles);
             })
             ->orderByDesc('created_at')
-            ->limit($take)
+            ->limit(self::HOME_FEED_POOL_CAP)
             ->get();
 
         $filtered = $posts;
@@ -95,7 +98,10 @@ class PostQueryService
             return $hasProductFilter ? [$recency, $amount] : [$amount, $recency];
         })->values();
 
-        return $sorted->take($limit)->values();
+        $total = $sorted->count();
+        $page = $sorted->slice($offset, $limit)->values();
+
+        return ['items' => $page, 'total' => $total];
     }
 
     /**
@@ -231,14 +237,15 @@ class PostQueryService
      * Recent posts from specific users (following feed). No geo radius — shows posts anywhere so followers can see activity.
      *
      * @param  list<int>  $followingUserIds
-     * @return Collection<int, PricePost>
+     * @return array{items: Collection<int, PricePost>, total: int}
      */
     private function listPostsFromFollowedUsers(
         array $followingUserIds,
         int $limit,
         ?string $keyword,
         ?string $areaKeyword = null,
-    ): Collection {
+        int $offset = 0,
+    ): array {
         $term = $keyword !== null ? trim($keyword) : '';
         $productNeedles = $term !== ''
             ? $this->searchSynonyms->expandTerms($term, SearchSynonymGroup::TYPE_PRODUCT)
@@ -247,7 +254,6 @@ class PostQueryService
         $areaNeedles = $this->resolveAreaSearchNeedles($areaKeyword);
 
         $ids = array_values(array_unique(array_map(intval(...), $followingUserIds)));
-        $cap = min(max($limit, 1), 100);
 
         $posts = PricePost::query()
             ->with($this->baseWith())
@@ -256,7 +262,7 @@ class PostQueryService
                 $this->applyProductNeedlesToPricePostQuery($query, $productNeedles);
             })
             ->orderByDesc('created_at')
-            ->limit($cap)
+            ->limit(self::HOME_FEED_POOL_CAP)
             ->get();
 
         if ($areaNeedles !== []) {
@@ -265,26 +271,29 @@ class PostQueryService
             })->values();
         }
 
-        if (! $hasProductFilter) {
-            return $posts->values();
-        }
+        $sorted = ! $hasProductFilter
+            ? $posts->values()
+            : $posts
+                ->sortBy(function (PricePost $p) {
+                    $amount = Pricing::comparablePrice(
+                        $p->price_exact !== null ? (string) $p->price_exact : null,
+                        $p->price_min !== null ? (string) $p->price_min : null,
+                        $p->price_max !== null ? (string) $p->price_max : null,
+                    );
+                    $recency = -($p->created_at?->timestamp ?? 0);
 
-        return $posts
-            ->sortBy(function (PricePost $p) {
-                $amount = Pricing::comparablePrice(
-                    $p->price_exact !== null ? (string) $p->price_exact : null,
-                    $p->price_min !== null ? (string) $p->price_min : null,
-                    $p->price_max !== null ? (string) $p->price_max : null,
-                );
-                $recency = -($p->created_at?->timestamp ?? 0);
+                    return [$recency, $amount];
+                })
+                ->values();
 
-                return [$recency, $amount];
-            })
-            ->values();
+        $total = $sorted->count();
+        $page = $sorted->slice($offset, $limit)->values();
+
+        return ['items' => $page, 'total' => $total];
     }
 
     /**
-     * @return Collection<int, PricePost>
+     * @return array{items: Collection<int, PricePost>, total: int}
      */
     public function bestPricesForProduct(
         int $productId,
@@ -292,17 +301,18 @@ class PostQueryService
         ?float $lng,
         float $radiusKm = 100,
         int $limit = 30,
-    ): Collection {
+        int $offset = 0,
+    ): array {
         $posts = PricePost::query()
             ->where('product_id', $productId)
             ->with($this->baseWith())
             ->get();
 
-        return $this->filterRadiusSortBest($posts, $lat, $lng, $radiusKm, $limit);
+        return $this->filterRadiusSortBest($posts, $lat, $lng, $radiusKm, $limit, $offset);
     }
 
     /**
-     * @return Collection<int, PricePost>
+     * @return array{items: Collection<int, PricePost>, total: int}
      */
     public function bestPricesForCategory(
         int $categoryId,
@@ -310,13 +320,14 @@ class PostQueryService
         ?float $lng,
         float $radiusKm = 100,
         int $limit = 40,
-    ): Collection {
+        int $offset = 0,
+    ): array {
         $posts = PricePost::query()
             ->whereHas('product', fn (Builder $q) => $q->where('category_id', $categoryId))
             ->with($this->baseWith())
             ->get();
 
-        return $this->filterRadiusSortBest($posts, $lat, $lng, $radiusKm, $limit);
+        return $this->filterRadiusSortBest($posts, $lat, $lng, $radiusKm, $limit, $offset);
     }
 
     /**
@@ -349,7 +360,7 @@ class PostQueryService
 
     /**
      * @param  Collection<int, PricePost>  $posts
-     * @return Collection<int, PricePost>
+     * @return array{items: Collection<int, PricePost>, total: int}
      */
     private function filterRadiusSortBest(
         Collection $posts,
@@ -357,7 +368,8 @@ class PostQueryService
         ?float $lng,
         float $radiusKm,
         int $limit,
-    ): Collection {
+        int $offset = 0,
+    ): array {
         if ($lat !== null && $lng !== null) {
             $posts = $posts->filter(function (PricePost $p) use ($lat, $lng, $radiusKm) {
                 return Geo::distanceKm($lat, $lng, (float) $p->latitude, (float) $p->longitude) <= $radiusKm;
@@ -371,7 +383,10 @@ class PostQueryService
             );
         })->values();
 
-        return $sorted->take($limit)->values();
+        $total = $sorted->count();
+        $page = $sorted->slice($offset, $limit)->values();
+
+        return ['items' => $page, 'total' => $total];
     }
 
     /**

@@ -34,6 +34,7 @@ class PostController extends Controller
         $categorySlug = $request->query('categorySlug');
         $following = $request->query('following') === '1';
         $limit = min((int) ($request->query('limit', 40) ?: 40) ?: 40, 100);
+        $offset = max(0, min(500, (int) ($request->query('offset', 0) ?: 0)));
         $qRaw = $request->query('q');
         $qTrimmed = is_string($qRaw) ? trim($qRaw) : '';
         $keyword = $qTrimmed !== '' ? Str::limit($qTrimmed, 200, '') : null;
@@ -53,15 +54,31 @@ class PostController extends Controller
         if ($productSlug) {
             $product = Product::query()->where('slug', $productSlug)->first();
             if (! $product) {
-                return response()->json(['posts' => []]);
+                return response()->json([
+                    'posts' => [],
+                    'meta' => [
+                        'offset' => $offset,
+                        'limit' => $limit,
+                        'total' => 0,
+                        'hasMore' => false,
+                    ],
+                ]);
             }
-            $list = $this->posts->bestPricesForProduct($product->id, $latN, $lngN, $radiusKm, $limit);
+            $result = $this->posts->bestPricesForProduct($product->id, $latN, $lngN, $radiusKm, $limit, $offset);
         } elseif ($categorySlug) {
             $cat = \App\Models\Category::query()->where('slug', $categorySlug)->first();
             if (! $cat) {
-                return response()->json(['posts' => []]);
+                return response()->json([
+                    'posts' => [],
+                    'meta' => [
+                        'offset' => $offset,
+                        'limit' => $limit,
+                        'total' => 0,
+                        'hasMore' => false,
+                    ],
+                ]);
             }
-            $list = $this->posts->bestPricesForCategory($cat->id, $latN, $lngN, $radiusKm, $limit);
+            $result = $this->posts->bestPricesForCategory($cat->id, $latN, $lngN, $radiusKm, $limit, $offset);
         } else {
             $followingUserIds = null;
             if ($following) {
@@ -75,11 +92,23 @@ class PostController extends Controller
                     $followingUserIds = [];
                 }
             }
-            $list = $this->posts->listRecentPosts($latN, $lngN, $radiusKm, $limit, $followingUserIds, $keyword, $areaKeyword);
+            $result = $this->posts->listRecentPosts($latN, $lngN, $radiusKm, $limit, $followingUserIds, $keyword, $areaKeyword, $offset);
         }
+
+        $list = $result['items'];
+        $total = $result['total'];
+        $returned = $list->count();
+
+        $hasMore = $returned > 0 && ($offset + $returned) < $total;
 
         return response()->json([
             'posts' => PricePostResource::collection($list)->resolve(),
+            'meta' => [
+                'offset' => $offset,
+                'limit' => $limit,
+                'total' => $total,
+                'hasMore' => $hasMore,
+            ],
         ]);
     }
 

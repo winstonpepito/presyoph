@@ -28,7 +28,7 @@ class CategoryDetailController extends Controller
         $latN = $lat !== null && $lat !== '' ? (float) $lat : null;
         $lngN = $lng !== null && $lng !== '' ? (float) $lng : null;
 
-        $posts = $this->posts->bestPricesForCategory($category->id, $latN, $lngN, $radiusKm, 48);
+        $result = $this->posts->bestPricesForCategory($category->id, $latN, $lngN, $radiusKm, 48);
         $products = Product::query()
             ->where('category_id', $category->id)
             ->orderBy('name')
@@ -50,7 +50,7 @@ class CategoryDetailController extends Controller
                     ? (string) $p->unit_quantity
                     : null,
             ])->all(),
-            'posts' => PricePostResource::collection($posts)->resolve(),
+            'posts' => PricePostResource::collection($result['items'])->resolve(),
         ]);
     }
 }

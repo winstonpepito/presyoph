@@ -27,7 +27,7 @@ class ProductDetailController extends Controller
         $latN = $lat !== null && $lat !== '' ? (float) $lat : null;
         $lngN = $lng !== null && $lng !== '' ? (float) $lng : null;
 
-        $list = $this->posts->bestPricesForProduct($product->id, $latN, $lngN, $radiusKm, 40);
+        $result = $this->posts->bestPricesForProduct($product->id, $latN, $lngN, $radiusKm, 40);
 
         return response()->json([
             'product' => [
@@ -45,7 +45,7 @@ class ProductDetailController extends Controller
                     'slug' => $product->category->slug,
                 ] : null,
             ],
-            'posts' => PricePostResource::collection($list)->resolve(),
+            'posts' => PricePostResource::collection($result['items'])->resolve(),
         ]);
     }
 }
