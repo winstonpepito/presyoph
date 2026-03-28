@@ -1,7 +1,9 @@
 import { Link, useSearchParams } from 'react-router-dom'
+import { PostLocationMapModal } from '../components/PostLocationMapModal'
 import { apiFetch } from '../lib/api'
 import { formatEstablishmentAddress } from '../lib/formatEstablishmentAddress'
 import { formatUnitSummary } from '../lib/formatUnit'
+import { hasUsableMapCoords } from '../lib/openStreetMapEmbed'
 import { comparablePrice, formatPricePostLabel } from '../lib/pricing'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
@@ -29,6 +31,9 @@ type SearchSampleFields = {
   priceMin: string | null
   priceMax: string | null
   establishment: SearchEstablishmentRef | null
+  /** Representative price post coordinates (or establishment fallback from API). */
+  latitude: number | null
+  longitude: number | null
 }
 
 type SearchData = {
@@ -49,6 +54,8 @@ type SearchData = {
     priceMin: string | null
     priceMax: string | null
     establishment: SearchEstablishmentRef | null
+    latitude: number | null
+    longitude: number | null
   }[]
   establishments: ({
     id: string
@@ -90,6 +97,8 @@ function productAsSample(p: SearchData['products'][number]): SearchSampleFields 
     priceMin: p.priceMin,
     priceMax: p.priceMax,
     establishment: p.establishment,
+    latitude: p.latitude ?? null,
+    longitude: p.longitude ?? null,
   }
 }
 
@@ -339,16 +348,43 @@ function SearchMobileCard({
   addressValue: string
   sampleProduct?: { slug: string; name: string } | null
 }) {
+  const [mapOpen, setMapOpen] = useState(false)
+  const lat = sample.latitude
+  const lng = sample.longitude
+  const showMapBtn =
+    lat != null && lng != null && hasUsableMapCoords(Number(lat), Number(lng))
+  const mapTitle = sample.establishment?.name ?? 'Location'
+
   return (
-    <li className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{headlineLabel}</p>
-          <div className="font-semibold text-emerald-700">{headlineLink}</div>
+    <>
+      <li className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{headlineLabel}</p>
+            <div className="font-semibold text-emerald-700">{headlineLink}</div>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1 text-right">
+            {showMapBtn ? (
+              <button
+                type="button"
+                onClick={() => setMapOpen(true)}
+                className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-emerald-600"
+                aria-label="View price location on map"
+                title="Map"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <path
+                    d="M12 21s7-4.35 7-10a7 7 0 1 0-14 0c0 5.65 7 10 7 10z"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="12" cy="11" r="2.5" />
+                </svg>
+              </button>
+            ) : null}
+            <p className="text-lg font-bold text-emerald-700">{price}</p>
+          </div>
         </div>
-        <p className="text-lg font-bold text-emerald-700">{price}</p>
-      </div>
-      <dl className="mt-3 grid gap-2 text-sm">
+        <dl className="mt-3 grid gap-2 text-sm">
         <div className="flex gap-2">
           <dt className="w-28 shrink-0 text-slate-500">Brand</dt>
           <dd className="text-slate-800">{sample.brand ?? '—'}</dd>
@@ -387,7 +423,17 @@ function SearchMobileCard({
           <dd className="text-slate-800">{addressValue}</dd>
         </div>
       </dl>
-    </li>
+      </li>
+      {mapOpen ? (
+        <PostLocationMapModal
+          open={mapOpen}
+          onClose={() => setMapOpen(false)}
+          latitude={Number(lat)}
+          longitude={Number(lng)}
+          title={mapTitle}
+        />
+      ) : null}
+    </>
   )
 }
 

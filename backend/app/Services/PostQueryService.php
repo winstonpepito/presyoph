@@ -413,6 +413,29 @@ class PostQueryService
     }
 
     /**
+     * @return array{latitude: ?float, longitude: ?float}
+     */
+    private function searchSampleCoords(?PricePost $post): array
+    {
+        if ($post === null) {
+            return ['latitude' => null, 'longitude' => null];
+        }
+
+        $est = $post->establishment;
+        $lat = $post->latitude !== null ? (float) $post->latitude : null;
+        $lng = $post->longitude !== null ? (float) $post->longitude : null;
+
+        if (($lat === null || $lng === null || ($lat === 0.0 && $lng === 0.0)) && $est !== null) {
+            if ($est->latitude !== null && $est->longitude !== null) {
+                $lat = (float) $est->latitude;
+                $lng = (float) $est->longitude;
+            }
+        }
+
+        return ['latitude' => $lat, 'longitude' => $lng];
+    }
+
+    /**
      * @return array{
      *     brand: ?string,
      *     productName: ?string,
@@ -422,7 +445,9 @@ class PostQueryService
      *     priceExact: ?string,
      *     priceMin: ?string,
      *     priceMax: ?string,
-     *     establishment: array<string, mixed>|null
+     *     establishment: array<string, mixed>|null,
+     *     latitude: ?float,
+     *     longitude: ?float
      * }
      */
     private function searchSampleFromPricePost(?PricePost $post): array
@@ -438,6 +463,8 @@ class PostQueryService
                 'priceMin' => null,
                 'priceMax' => null,
                 'establishment' => null,
+                'latitude' => null,
+                'longitude' => null,
             ];
         }
 
@@ -446,7 +473,7 @@ class PostQueryService
         $unit = $post->unit ?? $pr->unit;
         $uq = $post->unit_quantity ?? $pr->unit_quantity;
 
-        return [
+        return array_merge([
             'brand' => $pr->brand !== null && $pr->brand !== '' ? $pr->brand : null,
             'productName' => $pr->name,
             'productSlug' => $pr->slug,
@@ -463,7 +490,7 @@ class PostQueryService
                 'barangay' => $est->barangay,
                 'city' => $est->city,
             ] : null,
-        ];
+        ], $this->searchSampleCoords($post));
     }
 
     /**
@@ -533,7 +560,16 @@ class PostQueryService
             $priceRows = PricePost::query()
                 ->with('establishment')
                 ->whereIn('product_id', $productIds)
-                ->get(['product_id', 'price_exact', 'price_min', 'price_max', 'created_at', 'establishment_id']);
+                ->get([
+                    'product_id',
+                    'price_exact',
+                    'price_min',
+                    'price_max',
+                    'created_at',
+                    'establishment_id',
+                    'latitude',
+                    'longitude',
+                ]);
             foreach ($priceRows->groupBy('product_id') as $pid => $rows) {
                 $pidInt = (int) $pid;
                 $cheapestByProductId[$pidInt] = $rows
@@ -639,7 +675,7 @@ class PostQueryService
             $rep = $bestPostByProductId[$p->id] ?? null;
             $est = $rep?->establishment;
 
-            return [
+            return array_merge([
                 'id' => (string) $p->id,
                 'name' => $p->name,
                 'brand' => $p->brand !== null && $p->brand !== '' ? $p->brand : null,
@@ -664,7 +700,7 @@ class PostQueryService
                     'barangay' => $est->barangay,
                     'city' => $est->city,
                 ] : null,
-            ];
+            ], $this->searchSampleCoords($rep));
         })->values()->all();
 
         $establishmentPayloads = $establishments->map(fn (Establishment $e) => array_merge([
