@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import type { LocationsPayload } from '../types/locations'
 
-type SearchSynonymGroupRow = { id: string; type: 'product' | 'area'; terms: string[] }
+type SearchSynonymGroupRow = {
+  id: string
+  type: 'product' | 'area'
+  terms: string[]
+  spotlightKey: string | null
+}
 
 type AdminState = {
   stats: {
@@ -37,12 +42,16 @@ export function AdminPage() {
     const searchSynonymGroups: SearchSynonymGroupRow[] = []
     for (const item of rawSyn) {
       if (item === null || typeof item !== 'object') continue
-      const g = item as { id?: unknown; type?: unknown; terms?: unknown }
+      const g = item as { id?: unknown; type?: unknown; terms?: unknown; spotlightKey?: unknown }
       const id = String(g.id ?? '')
       if (!id) continue
       const type: 'product' | 'area' = g.type === 'area' ? 'area' : 'product'
       const terms = Array.isArray(g.terms) ? g.terms.map((t) => String(t)) : []
-      searchSynonymGroups.push({ id, type, terms })
+      const spotlightKey =
+        g.spotlightKey === 'gasoline' || g.spotlightKey === 'diesel' || g.spotlightKey === 'rice'
+          ? g.spotlightKey
+          : null
+      searchSynonymGroups.push({ id, type, terms, spotlightKey })
     }
 
     const statsRaw = j.stats as Partial<AdminState['stats']> | undefined
@@ -208,15 +217,23 @@ export function AdminPage() {
       .filter(Boolean)
   }
 
-  async function addSearchSynonymGroup(type: 'product' | 'area', termsRaw: string) {
+  async function addSearchSynonymGroup(
+    type: 'product' | 'area',
+    termsRaw: string,
+    spotlightKey: '' | 'gasoline' | 'diesel' | 'rice',
+  ) {
     const terms = parseSynonymTerms(termsRaw)
     if (terms.length === 0) {
       alert('Add at least one term (comma or newline separated).')
       return
     }
+    const body: Record<string, unknown> = { type, terms }
+    if (type === 'product' && spotlightKey) {
+      body.spotlightKey = spotlightKey
+    }
     const r = await apiFetch('/api/admin/search-synonym-groups', {
       method: 'POST',
-      body: JSON.stringify({ type, terms }),
+      body: JSON.stringify(body),
     })
     if (!r.ok) {
       const j = (await r.json().catch(() => ({}))) as { error?: string }
@@ -226,15 +243,24 @@ export function AdminPage() {
     void load()
   }
 
-  async function saveSearchSynonymGroup(id: string, termsRaw: string) {
+  async function saveSearchSynonymGroup(
+    id: string,
+    termsRaw: string,
+    type: 'product' | 'area',
+    spotlightKey: '' | 'gasoline' | 'diesel' | 'rice',
+  ) {
     const terms = parseSynonymTerms(termsRaw)
     if (terms.length === 0) {
       alert('Add at least one term.')
       return
     }
+    const body: Record<string, unknown> = { terms }
+    if (type === 'product') {
+      body.spotlightKey = spotlightKey || null
+    }
     const r = await apiFetch(`/api/admin/search-synonym-groups/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ terms }),
+      body: JSON.stringify(body),
     })
     if (!r.ok) {
       const j = (await r.json().catch(() => ({}))) as { error?: string }
@@ -633,7 +659,9 @@ export function AdminPage() {
             <strong>product</strong> group when the visitor’s search matches one of those terms. The{' '}
             <strong>area label</strong> (with location set) filters posts to establishments whose name, city, barangay, or
             address contains any term in an <strong>area</strong> group when the label matches a term. The label &quot;Current
-            location&quot; is ignored for text matching. Synonyms are case-insensitive.
+            location&quot; is ignored for text matching. Synonyms are case-insensitive. For <strong>product</strong> groups,
+            optional <strong>Home spotlight slot</strong> ties that group’s terms to one of the three highlighted cards
+            (latest price on the first page when there is no product or area-label filter).
           </p>
 
           <ul className="mt-4 space-y-4">
@@ -648,7 +676,10 @@ export function AdminPage() {
                     e.preventDefault()
                     const fd = new FormData(e.currentTarget)
                     const raw = String(fd.get('terms') ?? '')
-                    void saveSearchSynonymGroup(g.id, raw)
+                    const sk = String(fd.get('spotlightKey') ?? '')
+                    const spotlight: '' | 'gasoline' | 'diesel' | 'rice' =
+                      sk === 'gasoline' || sk === 'diesel' || sk === 'rice' ? sk : ''
+                    void saveSearchSynonymGroup(g.id, raw, g.type, spotlight)
                   }}
                 >
                   <div className="min-w-0 flex-1">
@@ -661,6 +692,22 @@ export function AdminPage() {
                       className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
                     />
                   </div>
+                  {g.type === 'product' ? (
+                    <div className="shrink-0 sm:w-44">
+                      <label className="text-xs text-slate-500">Home spotlight slot</label>
+                      <select
+                        name="spotlightKey"
+                        key={`${g.id}-spot-${g.spotlightKey ?? 'none'}`}
+                        defaultValue={g.spotlightKey ?? ''}
+                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">None</option>
+                        <option value="gasoline">Gasoline</option>
+                        <option value="diesel">Diesel</option>
+                        <option value="rice">Rice</option>
+                      </select>
+                    </div>
+                  ) : null}
                   <button
                     type="submit"
                     className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
@@ -686,7 +733,10 @@ export function AdminPage() {
               const fd = new FormData(e.currentTarget)
               const type = fd.get('synType') === 'area' ? 'area' : 'product'
               const raw = String(fd.get('synTerms') ?? '')
-              void addSearchSynonymGroup(type, raw)
+              const sk = String(fd.get('synSpotlight') ?? '')
+              const spotlight: '' | 'gasoline' | 'diesel' | 'rice' =
+                sk === 'gasoline' || sk === 'diesel' || sk === 'rice' ? sk : ''
+              void addSearchSynonymGroup(type, raw, spotlight)
               e.currentTarget.reset()
             }}
           >
@@ -698,6 +748,18 @@ export function AdminPage() {
               >
                 <option value="product">Product (name / brand / category filter)</option>
                 <option value="area">Area (establishment location text)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500">Home spotlight slot (product groups only)</label>
+              <select
+                name="synSpotlight"
+                className="mt-1 w-full max-w-xs rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:w-auto"
+              >
+                <option value="">None</option>
+                <option value="gasoline">Gasoline</option>
+                <option value="diesel">Diesel</option>
+                <option value="rice">Rice</option>
               </select>
             </div>
             <div>

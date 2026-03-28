@@ -11,7 +11,10 @@ class SearchSynonymGroup extends Model
 
     public const TYPE_AREA = 'area';
 
-    protected $fillable = ['type'];
+    /** @var list<string> */
+    public const SPOTLIGHT_KEYS = ['gasoline', 'diesel', 'rice'];
+
+    protected $fillable = ['type', 'spotlight_key'];
 
     public function terms(): HasMany
     {

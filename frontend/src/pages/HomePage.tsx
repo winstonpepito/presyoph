@@ -5,11 +5,79 @@ import { PostCard } from '../components/PostCard'
 import { apiFetch } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import type { PricePostView } from '../types/post'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 type FollowDirectoryUser = { id: string; name: string | null; image: string | null }
 
+/** Merged admin terms for the three home spotlight slots (from /api/v1/meta). */
+type SpotlightProductTerms = { gasoline: string[]; diesel: string[]; rice: string[] }
+
 const HOME_FEED_PAGE_SIZE = 24
+
+function buildProductHaystack(p: PricePostView): string {
+  return [p.product.name, p.product.brand ?? '', p.product.category?.name ?? ''].join(' ').toLowerCase()
+}
+
+function matchesNeedles(haystack: string, needles: string[]): boolean {
+  for (const n of needles) {
+    if (n.length > 0 && haystack.includes(n)) {
+      return true
+    }
+  }
+  return false
+}
+
+/** Latest matching post by createdAt (home “All” feed spotlight, first page only). */
+function pickLatestMatching(posts: PricePostView[], needles: string[]): PricePostView | null {
+  if (needles.length === 0) {
+    return null
+  }
+  const candidates = posts.filter((p) => matchesNeedles(buildProductHaystack(p), needles))
+  if (candidates.length === 0) {
+    return null
+  }
+  let best = candidates[0]
+  let bestTs = Date.parse(best.createdAt)
+  for (let i = 1; i < candidates.length; i++) {
+    const p = candidates[i]
+    const ts = Date.parse(p.createdAt)
+    if (ts > bestTs) {
+      best = p
+      bestTs = ts
+    }
+  }
+  return best
+}
+
+function useHomeFeedDisplayPosts(
+  posts: PricePostView[],
+  spotlightChunk: PricePostView[] | null,
+  spotlightTerms: SpotlightProductTerms | null,
+  view: string,
+  eligibleForSpotlight: boolean,
+): { displayPosts: PricePostView[]; spotlightIds: Set<string> } {
+  return useMemo(() => {
+    if (
+      view === 'following' ||
+      !eligibleForSpotlight ||
+      !spotlightChunk?.length ||
+      !spotlightTerms ||
+      (!spotlightTerms.gasoline.length && !spotlightTerms.diesel.length && !spotlightTerms.rice.length)
+    ) {
+      return { displayPosts: posts, spotlightIds: new Set<string>() }
+    }
+    const gas = pickLatestMatching(spotlightChunk, spotlightTerms.gasoline)
+    const diesel = pickLatestMatching(spotlightChunk, spotlightTerms.diesel)
+    const rice = pickLatestMatching(spotlightChunk, spotlightTerms.rice)
+    const featured = [gas, diesel, rice].filter((x): x is PricePostView => x != null)
+    if (featured.length === 0) {
+      return { displayPosts: posts, spotlightIds: new Set<string>() }
+    }
+    const spotlightIds = new Set(featured.map((p) => p.id))
+    const rest = posts.filter((p) => !spotlightIds.has(p.id))
+    return { displayPosts: [...featured, ...rest], spotlightIds }
+  }, [posts, spotlightChunk, spotlightTerms, view, eligibleForSpotlight])
+}
 
 type PostsIndexMeta = {
   offset: number
@@ -76,12 +144,8 @@ export function HomePage() {
   const [postsLoadingMore, setPostsLoadingMore] = useState(false)
   const [postsVersion, setPostsVersion] = useState(0)
   const [followingDirectory, setFollowingDirectory] = useState<FollowDirectoryUser[] | null>(null)
-
-  const postsLoadLock = useRef(false)
-  const postsRef = useRef(posts)
-  useEffect(() => {
-    postsRef.current = posts
-  }, [posts])
+  const [spotlightChunk, setSpotlightChunk] = useState<PricePostView[] | null>(null)
+  const [spotlightTerms, setSpotlightTerms] = useState<SpotlightProductTerms | null>(null)
 
   const lat = searchParams.get('lat')
   const lng = searchParams.get('lng')
@@ -89,6 +153,46 @@ export function HomePage() {
   const view = searchParams.get('view') ?? 'all'
   const productQ = searchParams.get('q') ?? ''
   const areaLabelParam = searchParams.get('label') ?? ''
+
+  /** Spotlight cards only before product or area-label filters; uses first API page only (see spotlightChunk). */
+  const eligibleForSpotlight = view === 'all' && productQ.trim() === '' && areaLabelParam.trim() === ''
+
+  const postsLoadLock = useRef(false)
+  const postsRef = useRef(posts)
+  useEffect(() => {
+    postsRef.current = posts
+  }, [posts])
+
+  const { displayPosts, spotlightIds } = useHomeFeedDisplayPosts(
+    posts,
+    spotlightChunk,
+    spotlightTerms,
+    view,
+    eligibleForSpotlight,
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const r = await apiFetch('/api/v1/meta', { skipAuth: true })
+      if (!r.ok || cancelled) {
+        return
+      }
+      const j = (await r.json()) as { spotlightProductTerms?: SpotlightProductTerms }
+      const s = j.spotlightProductTerms
+      if (
+        s &&
+        Array.isArray(s.gasoline) &&
+        Array.isArray(s.diesel) &&
+        Array.isArray(s.rice)
+      ) {
+        setSpotlightTerms(s)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const locParams = new URLSearchParams()
   if (lat) locParams.set('lat', lat)
@@ -124,6 +228,7 @@ export function HomePage() {
     let cancelled = false
     setPosts([])
     setPostsMeta(null)
+    setSpotlightChunk(null)
     setPostsInitialLoading(true)
     void (async () => {
       const r = await apiFetch(`/api/v1/posts?${buildPostsParams(0).toString()}`)
@@ -131,14 +236,18 @@ export function HomePage() {
       if (cancelled) {
         return
       }
-      setPosts(j.posts ?? [])
+      const chunk = j.posts ?? []
+      setPosts(chunk)
       setPostsMeta(j.meta ?? { offset: 0, limit: HOME_FEED_PAGE_SIZE, total: 0, hasMore: false })
+      if (eligibleForSpotlight) {
+        setSpotlightChunk(chunk)
+      }
       setPostsInitialLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [buildPostsParams, user?.id, postsVersion])
+  }, [buildPostsParams, user?.id, postsVersion, eligibleForSpotlight])
 
   const loadMorePosts = useCallback(async () => {
     if (!postsMeta?.hasMore || postsLoadLock.current || postsInitialLoading) {
@@ -362,8 +471,13 @@ export function HomePage() {
           </p>
         ) : (
           <>
-            {posts.map((post) => (
-              <PostCard key={post.id} post={post} onMutate={() => setPostsVersion((v) => v + 1)} />
+            {displayPosts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                spotlightBg={spotlightIds.has(post.id)}
+                onMutate={() => setPostsVersion((v) => v + 1)}
+              />
             ))}
             <HomeFeedLoadSentinel
               hasMore={Boolean(postsMeta?.hasMore)}

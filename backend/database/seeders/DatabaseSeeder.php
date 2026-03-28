@@ -85,5 +85,6 @@ class DatabaseSeeder extends Seeder
 
         $this->call(CebuCitiesSeeder::class);
         $this->call(CommoditySearchSynonymSeeder::class);
+        $this->call(HomeSpotlightSynonymSeeder::class);
     }
 }

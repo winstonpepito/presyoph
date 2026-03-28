@@ -70,8 +70,8 @@ class CommoditySearchSynonymSeeder extends Seeder
             ['saging', 'banana', 'lacatan', 'latundan', 'saba', 'plantain', 'cardava'],
             // Coconut
             ['lubi', 'nyog', 'niyog', 'coconut', 'buko', 'gata', 'coconut milk', 'coconut cream', 'desiccated coconut'],
-            // Cooking fuel
-            ['lpg', 'gasul', 'gasoline', 'petrol', 'diesel', 'kerosene', 'gasera', 'fuel'],
+            // Cooking fuel (gasoline / diesel spotlight terms live in HomeSpotlightSynonymSeeder)
+            ['lpg', 'gasul', 'kerosene', 'gasera', 'fuel'],
             // Flour & baking
             ['harina', 'flour', 'all purpose flour', 'cake flour', 'bread flour', 'cornstarch', 'baking powder', 'yeast', 'shortening'],
             // Dried fish & preserved

@@ -78,6 +78,7 @@ class AdminController extends Controller
             'searchSynonymGroups' => $searchSynonymGroups->map(fn (SearchSynonymGroup $g) => [
                 'id' => (string) $g->id,
                 'type' => $g->type,
+                'spotlightKey' => $g->spotlight_key,
                 'terms' => $g->terms->pluck('term')->map(fn ($t) => (string) $t)->values()->all(),
             ])->all(),
         ]);
@@ -334,14 +335,23 @@ class AdminController extends Controller
             'type' => ['required', 'in:product,area'],
             'terms' => ['required', 'array', 'min:1', 'max:40'],
             'terms.*' => ['required', 'string', 'max:120'],
+            'spotlightKey' => ['sometimes', 'nullable', 'string', Rule::in(SearchSynonymGroup::SPOTLIGHT_KEYS)],
         ]);
         $terms = collect($v['terms'])->map(fn ($t) => trim((string) $t))->filter()->unique()->values()->all();
         if ($terms === []) {
             return response()->json(['error' => 'Add at least one non-empty term.'], 422);
         }
 
-        DB::transaction(function () use ($v, $terms) {
-            $g = SearchSynonymGroup::query()->create(['type' => $v['type']]);
+        $spotlightKey = $v['spotlightKey'] ?? null;
+        if ($spotlightKey !== null && $v['type'] !== SearchSynonymGroup::TYPE_PRODUCT) {
+            return response()->json(['error' => 'Home spotlight applies only to product synonym groups.'], 422);
+        }
+
+        DB::transaction(function () use ($v, $terms, $spotlightKey) {
+            $g = SearchSynonymGroup::query()->create([
+                'type' => $v['type'],
+                'spotlight_key' => $spotlightKey,
+            ]);
             foreach ($terms as $t) {
                 $g->terms()->create(['term' => $t]);
             }
@@ -356,13 +366,21 @@ class AdminController extends Controller
         $v = $request->validate([
             'terms' => ['required', 'array', 'min:1', 'max:40'],
             'terms.*' => ['required', 'string', 'max:120'],
+            'spotlightKey' => ['sometimes', 'nullable', 'string', Rule::in(SearchSynonymGroup::SPOTLIGHT_KEYS)],
         ]);
         $terms = collect($v['terms'])->map(fn ($t) => trim((string) $t))->filter()->unique()->values()->all();
         if ($terms === []) {
             return response()->json(['error' => 'Add at least one non-empty term.'], 422);
         }
 
-        DB::transaction(function () use ($g, $terms) {
+        $spotlightKey = array_key_exists('spotlightKey', $v) ? ($v['spotlightKey'] ?? null) : $g->spotlight_key;
+        if ($spotlightKey !== null && $g->type !== SearchSynonymGroup::TYPE_PRODUCT) {
+            return response()->json(['error' => 'Home spotlight applies only to product synonym groups.'], 422);
+        }
+
+        DB::transaction(function () use ($g, $terms, $spotlightKey) {
+            $g->spotlight_key = $spotlightKey;
+            $g->save();
             $g->terms()->delete();
             foreach ($terms as $t) {
                 $g->terms()->create(['term' => $t]);

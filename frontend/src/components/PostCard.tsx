@@ -13,10 +13,13 @@ export function PostCard({
   post,
   showRank,
   onMutate,
+  spotlightBg,
 }: {
   post: PricePostView
   showRank?: number
   onMutate?: () => void
+  /** Home: cheapest gasoline / diesel / rice spotlight (#EAF5DA). */
+  spotlightBg?: boolean
 }) {
   const [editOpen, setEditOpen] = useState(false)
   const [mapOpen, setMapOpen] = useState(false)
@@ -42,7 +45,11 @@ export function PostCard({
 
   return (
     <>
-    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+    <article
+      className={`rounded-2xl border border-slate-200 p-4 shadow-sm transition-shadow hover:shadow-md ${
+        spotlightBg ? 'bg-[#EAF5DA]' : 'bg-white'
+      }`}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           {showRank != null && (
