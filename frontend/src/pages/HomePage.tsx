@@ -14,6 +14,25 @@ type SpotlightProductTerms = { gasoline: string[]; diesel: string[]; rice: strin
 
 const HOME_FEED_PAGE_SIZE = 24
 
+/** Match PostController: establishment text filter is off for this label; do not hide home spotlight. */
+function isAreaLabelFilterActive(label: string | null | undefined): boolean {
+  const t = (label ?? '').trim()
+  if (t === '') {
+    return false
+  }
+  return t.toLowerCase() !== 'current location'
+}
+
+function parseSpotlightTermsFromMeta(j: Record<string, unknown>): SpotlightProductTerms | null {
+  const s =
+    (j.spotlightProductTerms as SpotlightProductTerms | undefined) ??
+    (j.spotlight_product_terms as SpotlightProductTerms | undefined)
+  if (!s || !Array.isArray(s.gasoline) || !Array.isArray(s.diesel) || !Array.isArray(s.rice)) {
+    return null
+  }
+  return s
+}
+
 function buildProductHaystack(p: PricePostView): string {
   return [p.product.name, p.product.brand ?? '', p.product.category?.name ?? ''].join(' ').toLowerCase()
 }
@@ -154,8 +173,9 @@ export function HomePage() {
   const productQ = searchParams.get('q') ?? ''
   const areaLabelParam = searchParams.get('label') ?? ''
 
-  /** Spotlight cards only before product or area-label filters; uses first API page only (see spotlightChunk). */
-  const eligibleForSpotlight = view === 'all' && productQ.trim() === '' && areaLabelParam.trim() === ''
+  /** Spotlight when no product q and no real area-label filter (lat/lng + “Current location” is OK). */
+  const eligibleForSpotlight =
+    view === 'all' && productQ.trim() === '' && !isAreaLabelFilterActive(areaLabelParam)
 
   const postsLoadLock = useRef(false)
   const postsRef = useRef(posts)
@@ -178,14 +198,9 @@ export function HomePage() {
       if (!r.ok || cancelled) {
         return
       }
-      const j = (await r.json()) as { spotlightProductTerms?: SpotlightProductTerms }
-      const s = j.spotlightProductTerms
-      if (
-        s &&
-        Array.isArray(s.gasoline) &&
-        Array.isArray(s.diesel) &&
-        Array.isArray(s.rice)
-      ) {
+      const j = (await r.json()) as Record<string, unknown>
+      const s = parseSpotlightTermsFromMeta(j)
+      if (s) {
         setSpotlightTerms(s)
       }
     })()

@@ -50,6 +50,45 @@ class MetaController extends Controller
             $out[$k] = array_values(array_unique($out[$k]));
         }
 
+        $allEmpty = true;
+        foreach ($keys as $k) {
+            if ($out[$k] !== []) {
+                $allEmpty = false;
+                break;
+            }
+        }
+
+        if ($allEmpty) {
+            return $this->defaultSpotlightTermsFallback();
+        }
+
         return $out;
+    }
+
+    /**
+     * When no admin groups have spotlight_key set (e.g. migration not seeded), still return matching needles
+     * so the home page can highlight the three slots when posts exist.
+     *
+     * @return array{gasoline: list<string>, diesel: list<string>, rice: list<string>}
+     */
+    private function defaultSpotlightTermsFallback(): array
+    {
+        $gas = ['gasoline', 'petrol', 'unleaded', 'regular gasoline', 'regular unleaded', 'premium gasoline',
+            'premium gas', '91 octane', '95 octane', 'fuel gasoline'];
+        $die = ['diesel', 'biodiesel', 'diesel fuel'];
+        $rice = ['bigas', 'bugas', 'rice', 'ganador', 'kanin', 'kan-on', 'sinandomeng', 'sinandomin',
+            'dinorado', 'jasmine rice', 'malagkit', 'sticky rice', 'glutinous rice', 'brown rice', 'white rice',
+            'fancy rice'];
+
+        $norm = fn (array $raw): array => array_values(array_unique(array_map(
+            fn (string $t) => mb_strtolower(trim($t), 'UTF-8'),
+            $raw,
+        )));
+
+        return [
+            'gasoline' => $norm($gas),
+            'diesel' => $norm($die),
+            'rice' => $norm($rice),
+        ];
     }
 }
