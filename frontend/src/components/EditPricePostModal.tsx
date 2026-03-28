@@ -136,9 +136,17 @@ export function EditPricePostModal({ post, isOpen, onClose, onSaved }: Props) {
         priceMax: mode === 'range' ? priceMax : undefined,
         unit,
         unitQuantity,
-        latitude: Number(lat),
-        longitude: Number(lng),
         locationLabel: locationLabel.trim() ? locationLabel.trim() : undefined,
+      }
+      const latStr = lat.trim()
+      const lngStr = lng.trim()
+      if (latStr !== '' && lngStr !== '') {
+        const la = Number(latStr)
+        const ln = Number(lngStr)
+        if (Number.isFinite(la) && Number.isFinite(ln)) {
+          body.latitude = la
+          body.longitude = ln
+        }
       }
       if (categoryId) body.categoryId = categoryId
       if (productBrand.trim()) body.productBrand = productBrand.trim()
@@ -357,24 +365,25 @@ export function EditPricePostModal({ post, isOpen, onClose, onSaved }: Props) {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium text-slate-700">Latitude</label>
+                <label className="text-sm font-medium text-slate-700">Latitude (optional)</label>
                 <input
-                  required
                   value={lat}
                   onChange={(e) => setLat(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  inputMode="decimal"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700">Longitude</label>
+                <label className="text-sm font-medium text-slate-700">Longitude (optional)</label>
                 <input
-                  required
                   value={lng}
                   onChange={(e) => setLng(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  inputMode="decimal"
                 />
               </div>
             </div>
+            <p className="text-xs text-slate-500">Clear both fields to keep the coordinates already saved on this post.</p>
 
             <div>
               <label className="text-sm font-medium text-slate-700">Location note (optional)</label>

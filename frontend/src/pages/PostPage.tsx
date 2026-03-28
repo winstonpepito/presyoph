@@ -66,22 +66,10 @@ export function PostPage() {
       void resolveCityFromCoords(Number(urlLat), Number(urlLng))
       return
     }
-
-    if (!navigator.geolocation) return
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const la = String(pos.coords.latitude)
-        const ln = String(pos.coords.longitude)
-        setPrefillLat(la)
-        setPrefillLng(ln)
-        void resolveCityFromCoords(pos.coords.latitude, pos.coords.longitude)
-      },
-      () => {
-        /* user denied or unavailable — keep manual entry */
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60_000 },
-    )
+    setPrefillLat(undefined)
+    setPrefillLng(undefined)
+    setGeoCitySlug(null)
+    /* Do not auto-request GPS on load — user can use “Use my current location” on the form, or post without coordinates. */
   }, [searchParams])
 
   async function resolveCityFromCoords(latitude: number, longitude: number) {

@@ -103,10 +103,18 @@ export function PostPriceForm({
       priceMax: mode === 'range' ? String(fd.get('priceMax') ?? '') : undefined,
       unit: String(fd.get('unit') ?? 'pcs'),
       unitQuantity: String(fd.get('unitQuantity') ?? '1'),
-      latitude: Number(fd.get('latitude')),
-      longitude: Number(fd.get('longitude')),
       locationLabel: fd.get('locationLabel') ? String(fd.get('locationLabel')) : undefined,
       anonymous: anonymousRequested,
+    }
+    const latStr = String(fd.get('latitude') ?? '').trim()
+    const lngStr = String(fd.get('longitude') ?? '').trim()
+    if (latStr !== '' && lngStr !== '') {
+      const la = Number(latStr)
+      const ln = Number(lngStr)
+      if (Number.isFinite(la) && Number.isFinite(ln)) {
+        body.latitude = la
+        body.longitude = ln
+      }
     }
     if (categoryIdRaw) {
       body.categoryId = categoryIdRaw
@@ -180,7 +188,9 @@ export function PostPriceForm({
           setGeoNote('GPS updated. City detection failed — pick a city manually.')
         }
       },
-      () => alert('Location permission denied.'),
+      () => {
+        setGeoNote('Location access was denied or unavailable — you can still post; leave coordinates empty or enter them manually.')
+      },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60_000 },
     )
   }
@@ -370,25 +380,25 @@ export function PostPriceForm({
       <div className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="text-sm font-medium text-slate-700">Latitude</label>
+            <label className="text-sm font-medium text-slate-700">Latitude (optional)</label>
             <input
               name="latitude"
-              required
               value={lat}
               onChange={(e) => setLat(e.target.value)}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
               placeholder="10.3157"
+              inputMode="decimal"
             />
           </div>
           <div>
-            <label className="text-sm font-medium text-slate-700">Longitude</label>
+            <label className="text-sm font-medium text-slate-700">Longitude (optional)</label>
             <input
               name="longitude"
-              required
               value={lng}
               onChange={(e) => setLng(e.target.value)}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
               placeholder="123.8854"
+              inputMode="decimal"
             />
           </div>
         </div>
@@ -401,8 +411,8 @@ export function PostPriceForm({
             Use my current location (GPS)
           </button>
           <p className="mt-1 text-xs text-slate-500">
-            Fills latitude and longitude from your device. When possible, the city is chosen from your position (Cebu metro
-            area).
+            Optional. If you skip GPS or leave these blank, the map uses a default point in the Cebu area. When you use GPS,
+            the city may be chosen automatically (Cebu metro).
           </p>
           {geoNote ? <p className="mt-2 text-xs text-emerald-800">{geoNote}</p> : null}
         </div>

@@ -160,8 +160,8 @@ class PostController extends Controller
             'priceExact' => ['nullable', 'string'],
             'priceMin' => ['nullable', 'string'],
             'priceMax' => ['nullable', 'string'],
-            'latitude' => ['required', 'numeric', 'between:-90,90'],
-            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'latitude' => ['sometimes', 'nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['sometimes', 'nullable', 'numeric', 'between:-180,180'],
             'locationLabel' => ['nullable', 'string', 'max:300'],
             'anonymous' => ['sometimes', 'boolean'],
             'unit' => ['sometimes', 'nullable', 'string', Rule::in($unitCodes)],
@@ -243,6 +243,8 @@ class PostController extends Controller
             fn (string $s) => Establishment::query()->where('slug', $s)->exists(),
         );
 
+        [$postLat, $postLng] = $this->resolvePostCoordinates($validated);
+
         $establishment = Establishment::query()->updateOrCreate(
             ['slug' => $estSlug],
             [
@@ -250,8 +252,8 @@ class PostController extends Controller
                 'address_line' => isset($validated['establishmentAddress']) ? trim((string) $validated['establishmentAddress']) ?: null : null,
                 'barangay' => isset($validated['establishmentBarangay']) ? trim((string) $validated['establishmentBarangay']) ?: null : null,
                 'city' => isset($validated['establishmentCity']) ? trim((string) $validated['establishmentCity']) ?: null : null,
-                'latitude' => (float) $validated['latitude'],
-                'longitude' => (float) $validated['longitude'],
+                'latitude' => $postLat,
+                'longitude' => $postLng,
             ],
         );
 
@@ -262,8 +264,8 @@ class PostController extends Controller
             'establishment_id' => $establishment->id,
             'user_id' => $userId,
             'anonymous' => $anonymous,
-            'latitude' => (float) $validated['latitude'],
-            'longitude' => (float) $validated['longitude'],
+            'latitude' => $postLat,
+            'longitude' => $postLng,
             'location_label' => isset($validated['locationLabel']) ? trim((string) $validated['locationLabel']) ?: null : null,
             'price_exact' => null,
             'price_min' => null,
@@ -313,8 +315,8 @@ class PostController extends Controller
             'priceExact' => ['nullable', 'string'],
             'priceMin' => ['nullable', 'string'],
             'priceMax' => ['nullable', 'string'],
-            'latitude' => ['required', 'numeric', 'between:-90,90'],
-            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'latitude' => ['sometimes', 'nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['sometimes', 'nullable', 'numeric', 'between:-180,180'],
             'locationLabel' => ['nullable', 'string', 'max:300'],
             'unit' => ['sometimes', 'nullable', 'string', Rule::in($unitCodes)],
             'unitQuantity' => ['sometimes', 'nullable', 'numeric', 'gt:0'],
@@ -381,18 +383,20 @@ class PostController extends Controller
             fn (string $s) => Establishment::query()->where('slug', $s)->where('id', '!=', $eid)->exists(),
         );
 
+        [$postLat, $postLng] = $this->resolvePostCoordinatesForUpdate($validated, $post);
+
         $establishment->update([
             'slug' => $estSlug,
             'name' => $establishmentName,
             'address_line' => isset($validated['establishmentAddress']) ? trim((string) $validated['establishmentAddress']) ?: null : null,
             'barangay' => isset($validated['establishmentBarangay']) ? trim((string) $validated['establishmentBarangay']) ?: null : null,
             'city' => isset($validated['establishmentCity']) ? trim((string) $validated['establishmentCity']) ?: null : null,
-            'latitude' => (float) $validated['latitude'],
-            'longitude' => (float) $validated['longitude'],
+            'latitude' => $postLat,
+            'longitude' => $postLng,
         ]);
 
-        $post->latitude = (float) $validated['latitude'];
-        $post->longitude = (float) $validated['longitude'];
+        $post->latitude = $postLat;
+        $post->longitude = $postLng;
         $post->location_label = isset($validated['locationLabel']) ? trim((string) $validated['locationLabel']) ?: null : null;
         $post->unit = $unit;
         $post->unit_quantity = $unitQtyStr;
@@ -419,6 +423,47 @@ class PostController extends Controller
         $post->delete();
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * New posts: optional GPS; when missing, use configured default map point.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array{0: float, 1: float}
+     */
+    private function resolvePostCoordinates(array $validated): array
+    {
+        $lat = $validated['latitude'] ?? null;
+        $lng = $validated['longitude'] ?? null;
+        $latOk = $lat !== null && $lat !== '' && is_numeric($lat);
+        $lngOk = $lng !== null && $lng !== '' && is_numeric($lng);
+        if ($latOk && $lngOk) {
+            return [(float) $lat, (float) $lng];
+        }
+
+        return [
+            (float) config('post.default_latitude'),
+            (float) config('post.default_longitude'),
+        ];
+    }
+
+    /**
+     * Updates: if both coordinates are omitted or invalid, keep the post’s existing coordinates.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array{0: float, 1: float}
+     */
+    private function resolvePostCoordinatesForUpdate(array $validated, PricePost $post): array
+    {
+        $lat = $validated['latitude'] ?? null;
+        $lng = $validated['longitude'] ?? null;
+        $latOk = $lat !== null && $lat !== '' && is_numeric($lat);
+        $lngOk = $lng !== null && $lng !== '' && is_numeric($lng);
+        if ($latOk && $lngOk) {
+            return [(float) $lat, (float) $lng];
+        }
+
+        return [(float) $post->latitude, (float) $post->longitude];
     }
 
     private function userCanManagePricePost(?User $auth, PricePost $post): bool
