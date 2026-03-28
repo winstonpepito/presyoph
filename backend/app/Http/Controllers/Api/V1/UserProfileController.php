@@ -8,11 +8,49 @@ use App\Http\Support\OptionalSanctum;
 use App\Models\Follow;
 use App\Models\User;
 use App\Services\BannerService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class UserProfileController extends Controller
 {
-    public function show(Request $request, string $id): \Illuminate\Http\JsonResponse
+    /**
+     * Search members by display name (signed-in users only).
+     */
+    public function search(Request $request): JsonResponse
+    {
+        $q = trim((string) $request->query('q', ''));
+        if (mb_strlen($q, 'UTF-8') < 2) {
+            return response()->json(['users' => []]);
+        }
+
+        $limit = max(1, min(25, (int) ($request->query('limit', 15) ?: 15)));
+        $term = mb_strtolower($q, 'UTF-8');
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term);
+        $pattern = '%'.$escaped.'%';
+
+        $me = $request->user();
+
+        $users = User::query()
+            ->whereNotNull('name')
+            ->where('name', '!=', '')
+            ->whereRaw('LOWER(name) LIKE ? ESCAPE ?', [$pattern, '\\'])
+            ->when($me, fn ($query) => $query->where('id', '!=', $me->id))
+            ->orderBy('name')
+            ->limit($limit)
+            ->get(['id', 'name', 'image']);
+
+        $root = $request->root();
+
+        return response()->json([
+            'users' => $users->map(fn (User $u) => [
+                'id' => (string) $u->id,
+                'name' => $u->name,
+                'image' => BannerService::publicImageUrl($u->image, $root),
+            ])->values()->all(),
+        ]);
+    }
+
+    public function show(Request $request, string $id): JsonResponse
     {
         $userId = (int) $id;
         $user = User::query()->find($userId);

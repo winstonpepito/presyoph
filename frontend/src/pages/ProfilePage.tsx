@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 import { FollowButton } from '../components/FollowButton'
+import { ProfileMemberSearch } from '../components/ProfileMemberSearch'
 import { ProfileQrModal } from '../components/ProfileQrModal'
 import { PostCard } from '../components/PostCard'
 import { useAuth, type SessionUser } from '../context/AuthContext'
@@ -181,6 +182,11 @@ export function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
+      {sessionUser ? (
+        <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <ProfileMemberSearch />
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-wrap items-center gap-4">
           {data.user.image ? (

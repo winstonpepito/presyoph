@@ -50,6 +50,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/categories/{slug}', [CategoryDetailController::class, 'show']);
     Route::get('/products/{slug}', [ProductDetailController::class, 'show']);
     Route::get('/establishments/{slug}', [EstablishmentDetailController::class, 'show']);
+    Route::get('/users/search', [UserProfileController::class, 'search'])->middleware('auth:sanctum');
     Route::get('/users/{id}/profile', [UserProfileController::class, 'show']);
 
     Route::get('/following', [FollowController::class, 'index'])->middleware('auth:sanctum');
