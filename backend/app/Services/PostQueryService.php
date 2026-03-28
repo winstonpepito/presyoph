@@ -15,6 +15,9 @@ use Illuminate\Support\Collection;
 
 class PostQueryService
 {
+    /** Max rows considered per entity type before sort + slice (search pagination). */
+    private const SEARCH_CATALOG_CAP = 400;
+
     public function __construct(
         private SearchSynonymService $searchSynonyms,
     ) {}
@@ -449,13 +452,44 @@ class PostQueryService
     }
 
     /**
-     * @return array{categories: array, products: array, establishments: array}
+     * @param  array{
+     *     categoriesOffset?: int,
+     *     categoriesLimit?: int,
+     *     productsOffset?: int,
+     *     productsLimit?: int,
+     *     establishmentsOffset?: int,
+     *     establishmentsLimit?: int,
+     * }  $page
+     * @return array{categories: array, products: array, establishments: array, meta: array<string, mixed>}
      */
-    public function searchProductsAndCategories(string $q): array
+    public function searchProductsAndCategories(string $q, array $page = []): array
     {
+        $co = max(0, (int) ($page['categoriesOffset'] ?? 0));
+        $cl = max(0, min(50, (int) ($page['categoriesLimit'] ?? 15)));
+        $po = max(0, (int) ($page['productsOffset'] ?? 0));
+        $pl = max(0, min(50, (int) ($page['productsLimit'] ?? 20)));
+        $eo = max(0, (int) ($page['establishmentsOffset'] ?? 0));
+        $el = max(0, min(50, (int) ($page['establishmentsLimit'] ?? 15)));
+
+        $emptyMeta = fn (int $off, int $lim) => [
+            'total' => 0,
+            'offset' => $off,
+            'limit' => $lim,
+            'hasMore' => false,
+        ];
+
         $term = trim($q);
         if ($term === '') {
-            return ['categories' => [], 'products' => [], 'establishments' => []];
+            return [
+                'categories' => [],
+                'products' => [],
+                'establishments' => [],
+                'meta' => [
+                    'categories' => $emptyMeta($co, $cl),
+                    'products' => $emptyMeta($po, $pl),
+                    'establishments' => $emptyMeta($eo, $el),
+                ],
+            ];
         }
 
         $productNeedles = $this->searchSynonyms->expandTerms($term, SearchSynonymGroup::TYPE_PRODUCT);
@@ -464,7 +498,7 @@ class PostQueryService
             ->where(function (Builder $cq) use ($productNeedles) {
                 $this->applyCategoryNameNeedlesToQuery($cq, $productNeedles);
             })
-            ->limit(15)
+            ->limit(self::SEARCH_CATALOG_CAP)
             ->get();
 
         $products = Product::query()
@@ -472,7 +506,7 @@ class PostQueryService
             ->where(function (Builder $pq) use ($productNeedles) {
                 $this->applyProductNeedlesToProductBuilder($pq, $productNeedles);
             })
-            ->limit(20)
+            ->limit(self::SEARCH_CATALOG_CAP)
             ->get();
 
         $productIds = $products->pluck('id')->all();
@@ -509,7 +543,7 @@ class PostQueryService
 
         $establishments = Establishment::query()
             ->whereRaw('LOWER(name) LIKE ?', ['%'.strtolower($term).'%'])
-            ->limit(15)
+            ->limit(self::SEARCH_CATALOG_CAP)
             ->get();
 
         $categoryIds = $categories->pluck('id')->all();
@@ -580,51 +614,83 @@ class PostQueryService
             return [-$latest, strtolower($e->name)];
         })->values();
 
-        return [
-            'categories' => $categories->map(fn (Category $c) => array_merge([
-                'id' => (string) $c->id,
-                'name' => $c->name,
-                'slug' => $c->slug,
-            ], $this->searchSampleFromPricePost($bestPostByCategoryId[$c->id] ?? null)))->all(),
-            'products' => $products->map(function (Product $p) use ($bestPostByProductId) {
-                $rep = $bestPostByProductId[$p->id] ?? null;
-                $est = $rep?->establishment;
+        $categoryPayloads = $categories->map(fn (Category $c) => array_merge([
+            'id' => (string) $c->id,
+            'name' => $c->name,
+            'slug' => $c->slug,
+        ], $this->searchSampleFromPricePost($bestPostByCategoryId[$c->id] ?? null)))->values()->all();
 
-                return [
-                    'id' => (string) $p->id,
-                    'name' => $p->name,
-                    'brand' => $p->brand !== null && $p->brand !== '' ? $p->brand : null,
-                    'slug' => $p->slug,
-                    'unit' => $p->unit,
-                    'unitQuantity' => $p->unit_quantity !== null && $p->unit_quantity !== ''
-                        ? (string) $p->unit_quantity
-                        : null,
-                    'category' => $p->category ? [
-                        'id' => (string) $p->category->id,
-                        'name' => $p->category->name,
-                        'slug' => $p->category->slug,
-                    ] : null,
-                    'priceExact' => $rep !== null && $rep->price_exact !== null ? (string) $rep->price_exact : null,
-                    'priceMin' => $rep !== null && $rep->price_min !== null ? (string) $rep->price_min : null,
-                    'priceMax' => $rep !== null && $rep->price_max !== null ? (string) $rep->price_max : null,
-                    'establishment' => $est !== null ? [
-                        'id' => (string) $est->id,
-                        'name' => $est->name,
-                        'slug' => $est->slug,
-                        'addressLine' => $est->address_line,
-                        'barangay' => $est->barangay,
-                        'city' => $est->city,
-                    ] : null,
-                ];
-            })->all(),
-            'establishments' => $establishments->map(fn (Establishment $e) => array_merge([
-                'id' => (string) $e->id,
-                'name' => $e->name,
-                'slug' => $e->slug,
-                'addressLine' => $e->address_line,
-                'barangay' => $e->barangay,
-                'city' => $e->city,
-            ], $this->searchSampleFromPricePost($bestPostByEstablishmentId[$e->id] ?? null)))->all(),
+        $productPayloads = $products->map(function (Product $p) use ($bestPostByProductId) {
+            $rep = $bestPostByProductId[$p->id] ?? null;
+            $est = $rep?->establishment;
+
+            return [
+                'id' => (string) $p->id,
+                'name' => $p->name,
+                'brand' => $p->brand !== null && $p->brand !== '' ? $p->brand : null,
+                'slug' => $p->slug,
+                'unit' => $p->unit,
+                'unitQuantity' => $p->unit_quantity !== null && $p->unit_quantity !== ''
+                    ? (string) $p->unit_quantity
+                    : null,
+                'category' => $p->category ? [
+                    'id' => (string) $p->category->id,
+                    'name' => $p->category->name,
+                    'slug' => $p->category->slug,
+                ] : null,
+                'priceExact' => $rep !== null && $rep->price_exact !== null ? (string) $rep->price_exact : null,
+                'priceMin' => $rep !== null && $rep->price_min !== null ? (string) $rep->price_min : null,
+                'priceMax' => $rep !== null && $rep->price_max !== null ? (string) $rep->price_max : null,
+                'establishment' => $est !== null ? [
+                    'id' => (string) $est->id,
+                    'name' => $est->name,
+                    'slug' => $est->slug,
+                    'addressLine' => $est->address_line,
+                    'barangay' => $est->barangay,
+                    'city' => $est->city,
+                ] : null,
+            ];
+        })->values()->all();
+
+        $establishmentPayloads = $establishments->map(fn (Establishment $e) => array_merge([
+            'id' => (string) $e->id,
+            'name' => $e->name,
+            'slug' => $e->slug,
+            'addressLine' => $e->address_line,
+            'barangay' => $e->barangay,
+            'city' => $e->city,
+        ], $this->searchSampleFromPricePost($bestPostByEstablishmentId[$e->id] ?? null)))->values()->all();
+
+        $catTotal = count($categoryPayloads);
+        $prodTotal = count($productPayloads);
+        $estTotal = count($establishmentPayloads);
+
+        $catSlice = $cl > 0 ? array_slice($categoryPayloads, $co, $cl) : [];
+        $prodSlice = $pl > 0 ? array_slice($productPayloads, $po, $pl) : [];
+        $estSlice = $el > 0 ? array_slice($establishmentPayloads, $eo, $el) : [];
+
+        $sliceMeta = function (int $total, int $offset, int $limit, int $returned): array {
+            $hasMore = $limit > 0
+                ? ($offset + $returned < $total)
+                : ($offset < $total);
+
+            return [
+                'total' => $total,
+                'offset' => $offset,
+                'limit' => $limit,
+                'hasMore' => $hasMore,
+            ];
+        };
+
+        return [
+            'categories' => $catSlice,
+            'products' => $prodSlice,
+            'establishments' => $estSlice,
+            'meta' => [
+                'categories' => $sliceMeta($catTotal, $co, $cl, count($catSlice)),
+                'products' => $sliceMeta($prodTotal, $po, $pl, count($prodSlice)),
+                'establishments' => $sliceMeta($estTotal, $eo, $el, count($estSlice)),
+            ],
         ];
     }
 }

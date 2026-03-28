@@ -3,7 +3,7 @@ import { apiFetch } from '../lib/api'
 import { formatEstablishmentAddress } from '../lib/formatEstablishmentAddress'
 import { formatUnitSummary } from '../lib/formatUnit'
 import { comparablePrice, formatPricePostLabel } from '../lib/pricing'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 type SearchSortKey = 'brand' | 'primary' | 'unit' | 'price' | 'establishment' | 'address'
 
@@ -59,6 +59,25 @@ type SearchData = {
     city: string | null
   } & SearchSampleFields)[]
 }
+
+type SearchMetaSection = {
+  total: number
+  offset: number
+  limit: number
+  hasMore: boolean
+}
+
+type SearchResponse = SearchData & {
+  meta: {
+    categories: SearchMetaSection
+    products: SearchMetaSection
+    establishments: SearchMetaSection
+  }
+}
+
+const SEARCH_PAGE_CATEGORIES = 15
+const SEARCH_PAGE_PRODUCTS = 20
+const SEARCH_PAGE_ESTABLISHMENTS = 15
 
 function productAsSample(p: SearchData['products'][number]): SearchSampleFields {
   return {
@@ -372,20 +391,113 @@ function SearchMobileCard({
   )
 }
 
+function LoadMoreSentinel({
+  hasMore,
+  loading,
+  onLoadMore,
+}: {
+  hasMore: boolean
+  loading: boolean
+  onLoadMore: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const onLoadMoreRef = useRef(onLoadMore)
+  onLoadMoreRef.current = onLoadMore
+
+  useEffect(() => {
+    if (!hasMore || loading) {
+      return
+    }
+    const el = ref.current
+    if (!el) {
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          onLoadMoreRef.current()
+        }
+      },
+      { root: null, rootMargin: '120px', threshold: 0 },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasMore, loading])
+
+  if (!hasMore) {
+    return null
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="flex min-h-10 items-center justify-center py-3 text-xs text-slate-500"
+      aria-live="polite"
+    >
+      {loading ? 'Loading more…' : '\u00a0'}
+    </div>
+  )
+}
+
 export function SearchPage() {
   const [searchParams] = useSearchParams()
   const q = searchParams.get('q') ?? ''
-  const [data, setData] = useState<SearchData | null>(null)
+  const [categories, setCategories] = useState<SearchData['categories']>([])
+  const [products, setProducts] = useState<SearchData['products']>([])
+  const [establishments, setEstablishments] = useState<SearchData['establishments']>([])
+  const [meta, setMeta] = useState<SearchResponse['meta'] | null>(null)
+  const [initialLoading, setInitialLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState<'categories' | 'products' | 'establishments' | null>(null)
   const [categorySort, setCategorySort] = useState<SearchSortState | null>(null)
   const [productSort, setProductSort] = useState<SearchSortState | null>(null)
   const [establishmentSort, setEstablishmentSort] = useState<SearchSortState | null>(null)
 
+  const loadLock = useRef(false)
+  const categoriesRef = useRef(categories)
+  const productsRef = useRef(products)
+  const establishmentsRef = useRef(establishments)
+  const metaRef = useRef(meta)
+
   useEffect(() => {
+    categoriesRef.current = categories
+    productsRef.current = products
+    establishmentsRef.current = establishments
+    metaRef.current = meta
+  }, [categories, products, establishments, meta])
+
+  useEffect(() => {
+    if (!q.trim()) {
+      setCategories([])
+      setProducts([])
+      setEstablishments([])
+      setMeta(null)
+      setInitialLoading(false)
+      return
+    }
     let cancelled = false
+    setCategories([])
+    setProducts([])
+    setEstablishments([])
+    setMeta(null)
+    setInitialLoading(true)
     void (async () => {
-      const r = await apiFetch(`/api/v1/search?q=${encodeURIComponent(q)}`)
-      const j = (await r.json()) as SearchData
-      if (!cancelled) setData(j)
+      const params = new URLSearchParams({ q: q.trim() })
+      params.set('categoriesOffset', '0')
+      params.set('categoriesLimit', String(SEARCH_PAGE_CATEGORIES))
+      params.set('productsOffset', '0')
+      params.set('productsLimit', String(SEARCH_PAGE_PRODUCTS))
+      params.set('establishmentsOffset', '0')
+      params.set('establishmentsLimit', String(SEARCH_PAGE_ESTABLISHMENTS))
+      const r = await apiFetch(`/api/v1/search?${params}`)
+      const j = (await r.json()) as SearchResponse
+      if (cancelled) {
+        return
+      }
+      setCategories(j.categories)
+      setProducts(j.products)
+      setEstablishments(j.establishments)
+      setMeta(j.meta)
+      setInitialLoading(false)
     })()
     return () => {
       cancelled = true
@@ -398,17 +510,67 @@ export function SearchPage() {
     setEstablishmentSort(null)
   }, [q])
 
+  const loadMore = useCallback(async (section: 'categories' | 'products' | 'establishments') => {
+    const term = q.trim()
+    if (!term || loadLock.current) {
+      return
+    }
+    const m = metaRef.current
+    if (!m) {
+      return
+    }
+    if (section === 'categories' && !m.categories.hasMore) {
+      return
+    }
+    if (section === 'products' && !m.products.hasMore) {
+      return
+    }
+    if (section === 'establishments' && !m.establishments.hasMore) {
+      return
+    }
+
+    loadLock.current = true
+    setLoadingMore(section)
+    try {
+      const c = categoriesRef.current
+      const p = productsRef.current
+      const e = establishmentsRef.current
+      const params = new URLSearchParams({ q: term })
+      params.set('categoriesOffset', String(c.length))
+      params.set('categoriesLimit', section === 'categories' ? String(SEARCH_PAGE_CATEGORIES) : '0')
+      params.set('productsOffset', String(p.length))
+      params.set('productsLimit', section === 'products' ? String(SEARCH_PAGE_PRODUCTS) : '0')
+      params.set('establishmentsOffset', String(e.length))
+      params.set('establishmentsLimit', section === 'establishments' ? String(SEARCH_PAGE_ESTABLISHMENTS) : '0')
+      const r = await apiFetch(`/api/v1/search?${params}`)
+      const j = (await r.json()) as SearchResponse
+      if (j.categories.length) {
+        setCategories((prev) => [...prev, ...j.categories])
+      }
+      if (j.products.length) {
+        setProducts((prev) => [...prev, ...j.products])
+      }
+      if (j.establishments.length) {
+        setEstablishments((prev) => [...prev, ...j.establishments])
+      }
+      setMeta(j.meta)
+    } finally {
+      loadLock.current = false
+      setLoadingMore(null)
+    }
+  }, [q])
+
   const sortedCategories = useMemo(
-    () => (data ? sortBySearchState(data.categories, categorySort, categoryComparables) : []),
-    [data, categorySort],
+    () => sortBySearchState(categories, categorySort, categoryComparables),
+    [categories, categorySort],
   )
   const sortedProducts = useMemo(
-    () => (data ? sortBySearchState(data.products, productSort, productComparables) : []),
-    [data, productSort],
+    () => sortBySearchState(products, productSort, productComparables),
+    [products, productSort],
   )
   const sortedEstablishments = useMemo(
-    () => (data ? sortBySearchState(data.establishments, establishmentSort, establishmentComparables) : []),
-    [data, establishmentSort],
+    () => sortBySearchState(establishments, establishmentSort, establishmentComparables),
+    [establishments, establishmentSort],
   )
 
   return (
@@ -431,7 +593,7 @@ export function SearchPage() {
 
       {!q.trim() ? (
         <p className="mt-8 text-slate-500">Enter a term to search the catalog.</p>
-      ) : !data ? (
+      ) : initialLoading ? (
         <p className="mt-8 text-slate-500">Loading…</p>
       ) : (
         <div className="mt-8 space-y-8">
@@ -441,7 +603,8 @@ export function SearchPage() {
               Name matches your search and <strong className="font-medium text-slate-600">admin product synonyms</strong>{' '}
               (same as the home page). Default order is most recent price activity, then name. Sample columns use the
               cheapest price post in that category (newest tie-break). Click column headers in the table or use Sort by
-              on small screens; the list order matches your choice.
+              on small screens; the list order matches your choice. When there are more rows, scrolling near the bottom of
+              a section loads the next page for that section only.
             </p>
 
             <SearchMobileSortBar
@@ -476,7 +639,7 @@ export function SearchPage() {
                   ))}
                 </tbody>
               </table>
-              {data.categories.length === 0 && <p className="mt-2 text-sm text-slate-400">No matches</p>}
+              {categories.length === 0 && <p className="mt-2 text-sm text-slate-400">No matches</p>}
             </div>
 
             <ul className="mt-4 space-y-4 md:hidden">
@@ -500,8 +663,13 @@ export function SearchPage() {
                   }
                 />
               ))}
-              {data.categories.length === 0 && <li className="text-sm text-slate-400">No matches</li>}
+              {categories.length === 0 && <li className="text-sm text-slate-400">No matches</li>}
             </ul>
+            <LoadMoreSentinel
+              hasMore={Boolean(meta?.categories.hasMore)}
+              loading={loadingMore === 'categories'}
+              onLoadMore={() => void loadMore('categories')}
+            />
           </section>
 
           <section>
@@ -551,7 +719,7 @@ export function SearchPage() {
                   })}
                 </tbody>
               </table>
-              {data.products.length === 0 && <p className="mt-2 text-sm text-slate-400">No matches</p>}
+              {products.length === 0 && <p className="mt-2 text-sm text-slate-400">No matches</p>}
             </div>
 
             <ul className="mt-4 space-y-4 md:hidden">
@@ -573,8 +741,13 @@ export function SearchPage() {
                   />
                 )
               })}
-              {data.products.length === 0 && <li className="text-sm text-slate-400">No matches</li>}
+              {products.length === 0 && <li className="text-sm text-slate-400">No matches</li>}
             </ul>
+            <LoadMoreSentinel
+              hasMore={Boolean(meta?.products.hasMore)}
+              loading={loadingMore === 'products'}
+              onLoadMore={() => void loadMore('products')}
+            />
           </section>
 
           <section>
@@ -625,7 +798,7 @@ export function SearchPage() {
                   })}
                 </tbody>
               </table>
-              {data.establishments.length === 0 && <p className="mt-2 text-sm text-slate-400">No matches</p>}
+              {establishments.length === 0 && <p className="mt-2 text-sm text-slate-400">No matches</p>}
             </div>
 
             <ul className="mt-4 space-y-4 md:hidden">
@@ -657,8 +830,13 @@ export function SearchPage() {
                   />
                 )
               })}
-              {data.establishments.length === 0 && <li className="text-sm text-slate-400">No matches</li>}
+              {establishments.length === 0 && <li className="text-sm text-slate-400">No matches</li>}
             </ul>
+            <LoadMoreSentinel
+              hasMore={Boolean(meta?.establishments.hasMore)}
+              loading={loadingMore === 'establishments'}
+              onLoadMore={() => void loadMore('establishments')}
+            />
           </section>
         </div>
       )}
