@@ -6,7 +6,16 @@ import { PostCard } from '../components/PostCard'
 import { useAuth, type SessionUser } from '../context/AuthContext'
 import { apiFetch } from '../lib/api'
 import type { PricePostView } from '../types/post'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+const PROFILE_POSTS_PAGE_SIZE = 24
+
+type ProfilePostsMeta = {
+  offset: number
+  limit: number
+  total: number
+  hasMore: boolean
+}
 
 type ProfilePayload = {
   user: { id: string; name: string | null; image: string | null; externalImageUrl?: string | null }
@@ -15,6 +24,55 @@ type ProfilePayload = {
   isFollowing: boolean
   isSelf: boolean
   posts: PricePostView[]
+  postsMeta?: ProfilePostsMeta
+}
+
+function ProfilePostsLoadSentinel({
+  hasMore,
+  loading,
+  onLoadMore,
+}: {
+  hasMore: boolean
+  loading: boolean
+  onLoadMore: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const onLoadMoreRef = useRef(onLoadMore)
+  onLoadMoreRef.current = onLoadMore
+
+  useEffect(() => {
+    if (!hasMore || loading) {
+      return
+    }
+    const el = ref.current
+    if (!el) {
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          onLoadMoreRef.current()
+        }
+      },
+      { root: null, rootMargin: '160px', threshold: 0 },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasMore, loading])
+
+  if (!hasMore) {
+    return null
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="col-span-full flex min-h-12 items-center justify-center py-4 text-sm text-slate-500"
+      aria-live="polite"
+    >
+      {loading ? 'Loading more…' : '\u00a0'}
+    </div>
+  )
 }
 
 export function ProfilePage() {
@@ -40,6 +98,12 @@ export function ProfilePage() {
   const [avatarInputKey, setAvatarInputKey] = useState(0)
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null)
   const [qrOpen, setQrOpen] = useState(false)
+  const [postsLoadingMore, setPostsLoadingMore] = useState(false)
+  const postsLoadLock = useRef(false)
+  const postsRef = useRef<PricePostView[]>([])
+  useEffect(() => {
+    postsRef.current = data?.posts ?? []
+  }, [data?.posts])
 
   const profileQrUrl = useMemo(() => {
     if (!id) return ''
@@ -52,7 +116,13 @@ export function ProfilePage() {
     let cancelled = false
     void (async () => {
       if (!id) return
-      const r = await apiFetch(`/api/v1/users/${encodeURIComponent(id)}/profile`)
+      setNotFound(false)
+      setData(null)
+      const qs = new URLSearchParams({
+        postsOffset: '0',
+        postsLimit: String(PROFILE_POSTS_PAGE_SIZE),
+      })
+      const r = await apiFetch(`/api/v1/users/${encodeURIComponent(id)}/profile?${qs.toString()}`)
       if (cancelled) return
       if (r.status === 404) {
         setNotFound(true)
@@ -65,6 +135,39 @@ export function ProfilePage() {
       cancelled = true
     }
   }, [id, postsVersion])
+
+  const loadMorePosts = useCallback(async () => {
+    if (!id || !data?.postsMeta?.hasMore || postsLoadLock.current || postsLoadingMore) {
+      return
+    }
+    postsLoadLock.current = true
+    setPostsLoadingMore(true)
+    try {
+      const offset = postsRef.current.length
+      const qs = new URLSearchParams({
+        postsOffset: String(offset),
+        postsLimit: String(PROFILE_POSTS_PAGE_SIZE),
+      })
+      const r = await apiFetch(`/api/v1/users/${encodeURIComponent(id)}/profile?${qs.toString()}`)
+      if (!r.ok) {
+        return
+      }
+      const j = (await r.json()) as ProfilePayload
+      setData((prev) => {
+        if (!prev) {
+          return prev
+        }
+        return {
+          ...prev,
+          posts: [...prev.posts, ...(j.posts ?? [])],
+          postsMeta: j.postsMeta ?? prev.postsMeta,
+        }
+      })
+    } finally {
+      postsLoadLock.current = false
+      setPostsLoadingMore(false)
+    }
+  }, [id, data?.postsMeta?.hasMore, postsLoadingMore])
 
   useEffect(() => {
     return () => {
@@ -439,6 +542,11 @@ export function ProfilePage() {
             <PostCard key={post.id} post={post} onMutate={() => setPostsVersion((v) => v + 1)} />
           ))
         )}
+        <ProfilePostsLoadSentinel
+          hasMore={Boolean(data.postsMeta?.hasMore)}
+          loading={postsLoadingMore}
+          onLoadMore={() => void loadMorePosts()}
+        />
       </section>
       <p className="mt-8">
         <Link to="/" className="text-sm text-emerald-600 hover:underline">

@@ -58,11 +58,19 @@ class UserProfileController extends Controller
             return response()->json(['message' => 'Not found'], 404);
         }
 
+        $postsOffset = max(0, (int) $request->query('postsOffset', 0));
+        $postsLimit = max(1, min(50, (int) ($request->query('postsLimit', 24) ?: 24)));
+
+        $totalPosts = $user->pricePosts()->count();
+
         $posts = $user->pricePosts()
             ->with(['product.category', 'establishment', 'user:id,name,image'])
             ->orderByDesc('created_at')
-            ->limit(30)
+            ->offset($postsOffset)
+            ->limit($postsLimit)
             ->get();
+        $returned = $posts->count();
+        $hasMore = ($postsOffset + $returned) < $totalPosts;
 
         $followerCount = Follow::query()->where('following_id', $userId)->count();
         $followingCount = Follow::query()->where('follower_id', $userId)->count();
@@ -94,6 +102,12 @@ class UserProfileController extends Controller
             'isFollowing' => $isFollowing,
             'isSelf' => (int) $sessionId === $userId,
             'posts' => PricePostResource::collection($posts)->resolve(),
+            'postsMeta' => [
+                'offset' => $postsOffset,
+                'limit' => $postsLimit,
+                'total' => $totalPosts,
+                'hasMore' => $hasMore,
+            ],
         ]);
     }
 }
